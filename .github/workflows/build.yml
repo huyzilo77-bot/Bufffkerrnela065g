@@ -9,49 +9,43 @@ jobs:
 
     steps:
     - name: Checkout repo
-      uses: actions/checkout@v4
+      uses: actions/checkout@v3
 
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y \
-          git build-essential bc bison flex \
-          libssl-dev libncurses5-dev libelf-dev \
-          ccache unzip zip curl wget python3 jq \
+        sudo apt-get install -y git build-essential bc bison flex \
+          libssl-dev libncurses5-dev libncursesw5-dev ccache unzip zip wget curl \
           openjdk-17-jdk
 
-    - name: Clone kernel source
+    - name: Download kernel source
       run: |
-        git clone --depth=1 -b main \
-          https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/huyzilo77-bot/Samsung-A06-5g-Kernel-5.15.151.git kernel
+        wget -O kernel.tar https://github.com/huyzilo77-bot/Bufffkernela065g/releases/download/v1/kernel-5.15.tar
+        mkdir kernel
+        tar -xf kernel.tar -C kernel --strip-components=1
+        ls -la kernel
 
     - name: Apply KernelSU Next + SUSFS
       run: |
         cd kernel
-        curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/main/setup.sh" | bash -
-        curl -LSs "https://gitlab.com/simonpunk/susfs4ksu/-/raw/gki-android13-5.15/susfs.patch" -o susfs.patch
-        git apply susfs.patch || true
+        curl -LSs https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/main/setup.sh | bash -
+        patch -p1 < <(curl -sSL https://gitlab.com/simonpunk/susfs4ksu/-/raw/gki-android13-5.15/susfs.patch)
 
     - name: Build kernel
       run: |
         cd kernel
-        export ARCH=arm64
-        export SUBARCH=arm64
-        export KBUILD_BUILD_USER="github-actions"
-        export KBUILD_BUILD_HOST="ci"
-        make a06x_q0_defconfig
-        make -j$(nproc)
+        make ARCH=arm64 a06x_00_defconfig
+        make ARCH=arm64 -j$(nproc)
 
     - name: Pack with AnyKernel3
       run: |
         git clone https://github.com/osm0sis/AnyKernel3.git
+        cp kernel/arch/arm64/boot/Image AnyKernel3/
         cd AnyKernel3
-        cp ../kernel/arch/arm64/boot/Image.gz-dtb ./ || true
-        cp ../kernel/arch/arm64/boot/dtb.img ./ || true
-        zip -r9 ../kernel_a06_ksu_susfs.zip ./*
+        zip -r9 ../kernel-build.zip *
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: kernel_a06_ksu_susfs
-        path: kernel_a06_ksu_susfs.zip
+        name: kernel-build
+        path: kernel-build.zip
