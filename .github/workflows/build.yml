@@ -56,9 +56,7 @@ jobs:
       - name: Select defconfig + Fetch ABI + Build Kernel
         run: |
           cd kernel-5.15
-          chmod +x -R scripts
-
-          # 🔹 Chọn defconfig
+          # 🟢 Chọn defconfig cho A06
           if [ -f arch/arm64/configs/a06x_defconfig ]; then
             DEFCONFIG=a06x_defconfig
           elif [ -f arch/arm64/configs/a06_defconfig ]; then
@@ -69,41 +67,42 @@ jobs:
           fi
           echo "DEFCONFIG=$DEFCONFIG" >> $GITHUB_ENV
 
-          make O=out ARCH=arm64 $DEFCONFIG
-          yes "" | make O=out ARCH=arm64 olddefconfig
+          # 🟢 Clone repo GKI common Android 13 - 5.15 để lấy ABI
+          git clone --depth=1 https://android.googlesource.com/kernel/common -b android13-5.15 ../gki-common
 
-          # 🔹 Clone repo ABI
-          cd ..
-          git clone --depth=1 https://android.googlesource.com/kernel/common -b android13-5.15 gki-common
-          cd kernel-5.15
-
+          # Ưu tiên chọn ABI cho Mediatek
           ABI_FILE=$(ls ../gki-common/android/ | grep "abi_gki_aarch64_mtk" | head -n1 || true)
           if [ -n "$ABI_FILE" ]; then
+            echo "✅ Dùng ABI whitelist: $ABI_FILE"
             cp ../gki-common/android/$ABI_FILE abi_symbollist.raw
           else
+            echo "⚠️ Không tìm thấy ABI cho Mediatek → thử generic"
             ABI_FILE=$(ls ../gki-common/android/ | grep "abi_gki_aarch64_generic" | head -n1 || true)
             if [ -n "$ABI_FILE" ]; then
+              echo "✅ Dùng ABI whitelist generic: $ABI_FILE"
               cp ../gki-common/android/$ABI_FILE abi_symbollist.raw
             else
+              echo "❌ Không tìm thấy file ABI phù hợp → tạo file rỗng"
               touch abi_symbollist.raw
             fi
           fi
 
-          # 🔹 Copy vào tất cả path + cả gốc kernel
+          # 🟢 Copy vào tất cả path mà kernel cần (bỏ copy trùng ./)
           mkdir -p abi out/abi out/android/abi out/obj/KERNEL_OBJ/kernel-5.15
-          cp abi_symbollist.raw ./
           cp abi_symbollist.raw abi/abi_symbollist.raw
           cp abi_symbollist.raw out/abi/abi_symbollist.raw
           cp abi_symbollist.raw out/android/abi/abi_symbollist.raw
           cp abi_symbollist.raw out/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
 
           echo "📌 ABI whitelist đã copy:"
-          find . -name "abi_symbollist.raw" -ls
+          find . -name "abi_symbollist.raw" -ls || true
 
-          # 🚀 Build kernel bằng clang Android
-          make -j$(nproc) O=out ARCH=arm64 \
-            CC=clang CROSS_COMPILE=aarch64-linux-android- \
-            CLANG_TRIPLE=aarch64-linux-gnu- LD=ld.lld
+          # 🟢 Build kernel
+          chmod +x -R ./scripts
+          make O=out ARCH=arm64 $DEFCONFIG
+          yes "" | make O=out ARCH=arm64 olddefconfig
+          make -j$(nproc --all) O=out ARCH=arm64 \
+            CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld
             
       - name: Export .config for debug
         uses: actions/upload-artifact@v4
