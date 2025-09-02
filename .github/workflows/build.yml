@@ -17,45 +17,16 @@ jobs:
           sudo apt update
           sudo apt install -y git wget build-essential bc bison flex \
             libssl-dev libelf-dev ccache unzip python3 clang llvm lld \
-            gcc-aarch64-linux-gnu
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
       - name: Download Kernel Source (Release)
         run: |
-          wget -O kernel.tar "https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/kernel-5.15.tar"
+          wget -O kernel.tar "https://github.com/huyzilo77-bot/Bufffkernela065g/releases/download/V1/kernel-5.15.tar"
+
       - name: Extract Kernel Source
         run: |
           mkdir kernel-5.15
           tar -xf kernel.tar -C kernel-5.15 --strip-components=1
-
-      - name: Fetch ABI whitelist (Android 13 - 5.15, Mediatek)
-        run: |
-          git clone --depth=1 https://android.googlesource.com/kernel/common -b android13-5.15 gki-common
-
-          ABI_FILE=$(ls gki-common/android/ | grep "abi_gki_aarch64_mtk" | head -n1 || true)
-
-          cd kernel-5.15
-          if [ -n "$ABI_FILE" ]; then
-            echo "✅ Dùng ABI whitelist: $ABI_FILE"
-            cp ../gki-common/android/$ABI_FILE abi_symbollist.raw
-          else
-            echo "⚠️ Không tìm thấy ABI cho Mediatek → fallback generic"
-            ABI_FILE=$(ls ../gki-common/android/ | grep "abi_gki_aarch64_generic" | head -n1 || true)
-            if [ -n "$ABI_FILE" ]; then
-              cp ../gki-common/android/$ABI_FILE abi_symbollist.raw
-            else
-              echo "⚠️ Không tìm thấy file ABI phù hợp → tạo file rỗng"
-              touch abi_symbollist.raw
-            fi
-          fi
-
-          mkdir -p abi out/abi out/android/abi out/obj/KERNEL_OBJ/kernel-5.15
-          cp abi_symbollist.raw abi/abi_symbollist.raw
-          cp abi_symbollist.raw out/abi/abi_symbollist.raw
-          cp abi_symbollist.raw out/android/abi/abi_symbollist.raw
-          cp abi_symbollist.raw out/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
-
-          echo "📌 ABI whitelist đã copy:"
-          find . -name "abi_symbollist.raw" -ls
 
       - name: Clone utilities (AnyKernel3 & SUSFS)
         run: |
@@ -83,9 +54,11 @@ jobs:
           # Xoá khoảng trắng đầu dòng trước '#'
           sed -i 's/^[[:space:]]*#/#/' drivers/power/supply/Kconfig || true
 
-      - name: Select defconfig
+      - name: Select defconfig + Fetch ABI + Build Kernel
         run: |
           cd kernel-5.15
+          
+          # 🔹 Chọn defconfig
           if [ -f arch/arm64/configs/a06x_defconfig ]; then
             DEFCONFIG=a06x_defconfig
           elif [ -f arch/arm64/configs/a06_defconfig ]; then
@@ -96,18 +69,52 @@ jobs:
           fi
           echo "DEFCONFIG=$DEFCONFIG" >> $GITHUB_ENV
 
-      - name: Build Kernel
-        run: |
-          cd kernel-5.15
-          chmod +x -R ./scripts
-
           # 🛠 Tạo config từ defconfig
-          make O=out ARCH=arm64 ${{ env.DEFCONFIG }}
+          make O=out ARCH=arm64 $DEFCONFIG
           yes "" | make O=out ARCH=arm64 olddefconfig
 
-          # 🚀 Build kernel
-          make -j$(nproc --all) O=out ARCH=arm64 \
-            CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld
+          # 🔹 Clone repo GKI common Android 13 - 5.15
+          cd ..
+          git clone --depth=1 https://android.googlesource.com/kernel/common -b android13-5.15 gki-common
+          cd kernel-5.15
+
+          # 🔹 Ưu tiên ABI cho Mediatek, fallback generic → cuối cùng rỗng
+          ABI_FILE=$(ls ../gki-common/android/ | grep "abi_gki_aarch64_mtk" | head -n1 || true)
+          if [ -n "$ABI_FILE" ]; then
+            echo "✅ Dùng ABI whitelist: $ABI_FILE"
+            cp ../gki-common/android/$ABI_FILE abi_symbollist.raw
+          else
+            echo "⚠️ Không tìm thấy ABI cho Mediatek → thử generic"
+            ABI_FILE=$(ls ../gki-common/android/ | grep "abi_gki_aarch64_generic" | head -n1 || true)
+            if [ -n "$ABI_FILE" ]; then
+              echo "✅ Dùng ABI whitelist generic: $ABI_FILE"
+              cp ../gki-common/android/$ABI_FILE abi_symbollist.raw
+            else
+              echo "❌ Không tìm thấy file ABI phù hợp → tạo file rỗng"
+              touch abi_symbollist.raw
+            fi
+          fi
+
+          # 🔹 Copy vào tất cả path mà kernel cần
+          mkdir -p abi out/abi out/android/abi out/obj/KERNEL_OBJ/kernel-5.15
+          cp abi_symbollist.raw abi/abi_symbollist.raw
+          cp abi_symbollist.raw out/abi/abi_symbollist.raw
+          cp abi_symbollist.raw out/android/abi/abi_symbollist.raw
+          cp abi_symbollist.raw out/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
+
+          echo "📌 ABI whitelist đã copy:"
+          find . -name "abi_symbollist.raw" -ls
+
+          # 🚀 Build kernel (silent + nhanh)
+          make -s -j$(nproc) O=out ARCH=arm64 \
+            CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld \
+            LLVM=1 LLVM_IAS=1
+
+      - name: Export .config for debug
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kernel-config
+          path: kernel-5.15/out/.config
 
       - name: Pack AnyKernel3 zip
         run: |
