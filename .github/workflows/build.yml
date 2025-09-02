@@ -32,15 +32,21 @@ jobs:
         run: |
           git clone --depth=1 https://android.googlesource.com/kernel/common -b android13-5.15 gki-common
           ABI_FILE=$(ls gki-common/android/ | grep -E "abi_gki_aarch64_" | head -n1 || true)
-          mkdir -p kernel-5.15/abi
+          cd kernel-5.15
           if [ -n "$ABI_FILE" ]; then
             echo "✅ Dùng ABI: $ABI_FILE"
-            cp "gki-common/android/$ABI_FILE" kernel-5.15/abi/abi_symbollist.raw
+            cp ../gki-common/android/$ABI_FILE abi_symbollist.raw
           else
             echo "⚠️ Không tìm thấy ABI → tạo file rỗng"
-            touch kernel-5.15/abi/abi_symbollist.raw
+            touch abi_symbollist.raw
           fi
-          ls -l kernel-5.15/abi/abi_symbollist.raw
+
+      - name: Ensure ABI whitelist
+        run: |
+          cd kernel-5.15
+          mkdir -p abi
+          cp abi_symbollist.raw abi/abi_symbollist.raw
+          ls -l abi_symbollist.raw abi/abi_symbollist.raw
 
       - name: Clone utilities (AnyKernel3 & SUSFS)
         run: |
@@ -59,15 +65,7 @@ jobs:
           cp -r ../susfs/kernel_patches/fs/* fs/ || true
           cp -r ../susfs/kernel_patches/include/linux/* include/linux/ || true
 
-      - name: Fix Kconfig encoding
-        run: |
-          cd kernel-5.15
-          # loại bỏ ký tự lạ và khoảng trắng đầu dòng
-          sed -i "s/’/'/g; s/‘/'/g" $(grep -rl $'\xE2\x80' drivers/ || true)
-          sed -i 's/^[[:space:]]*#/#/' drivers/power/supply/Kconfig || true
-
       - name: Select defconfig
-        id: defconfig
         run: |
           cd kernel-5.15
           if [ -f arch/arm64/configs/a06x_defconfig ]; then
@@ -78,14 +76,12 @@ jobs:
             echo "❌ Không tìm thấy defconfig cho A06!"
             exit 1
           fi
-          echo "✅ Dùng defconfig: $DEFCONFIG"
           echo "DEFCONFIG=$DEFCONFIG" >> $GITHUB_ENV
 
       - name: Build Kernel
         run: |
           cd kernel-5.15
           chmod +x -R ./scripts
-
           make O=out ARCH=arm64 ${{ env.DEFCONFIG }}
           yes "" | make O=out ARCH=arm64 olddefconfig
           make -j$(nproc --all) O=out ARCH=arm64 \
