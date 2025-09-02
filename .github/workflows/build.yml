@@ -25,9 +25,8 @@ jobs:
             libncurses5-dev libncursesw5-dev libelf-dev ccache unzip jq
 
       - name: Clone kernel source
-        run: |
-          git clone --depth=1 -b main https://github.com/huyzilo77-bot/Samsung-A06-5g-Kernel-5.15.151.git kernel
-          ls -la kernel
+  run: |
+    git clone --depth=1 -b main https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/huyzilo77-bot/Samsung-A06-5g-Kernel-5.15.151.git kernel
 
       - name: Apply KernelSU Next + SUSFS
         run: |
