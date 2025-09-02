@@ -104,11 +104,12 @@ jobs:
           echo "📌 ABI whitelist đã copy:"
           find . -name "abi_symbollist.raw" -ls
 
-          # 🚀 Build kernel (silent + nhanh)
-          make -s -j$(nproc) O=out ARCH=arm64 \
-            CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld \
-            LLVM=1 LLVM_IAS=1
-
+          # 🚀 Build kernel (fix permission + compiler)
+          chmod +x -R scripts
+          make -j$(nproc) O=out ARCH=arm64 \
+            CC=clang CROSS_COMPILE=aarch64-linux-android- \
+            CLANG_TRIPLE=aarch64-linux-gnu- LD=ld.lld
+            
       - name: Export .config for debug
         uses: actions/upload-artifact@v4
         with:
