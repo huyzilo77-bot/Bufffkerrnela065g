@@ -20,9 +20,15 @@ jobs:
 
       - name: Download Kernel Source (Release)
         run: |
-          wget -O kernel.tar "https://github.com/huyzilo77-bot/Bufffkernela065g/releases/download/V1/kernel-5.15.tar"
-          mkdir kernel-5.15
+          echo "⬇️ Tải kernel source (.tar)"
+          wget -nv -O kernel.tar "https://github.com/huyzilo77-bot/Bufffkernela065g/releases/download/V1/kernel-5.15.tar" || {
+            echo "❌ Không tải được kernel source!"
+            exit 1
+          }
+          mkdir -p kernel-5.15
           tar -xf kernel.tar -C kernel-5.15 --strip-components=1
+          echo "✅ Giải nén thành công"
+          ls -la kernel-5.15 | head -20
 
       - name: Fetch ABI whitelist from AOSP GKI
         run: |
@@ -30,15 +36,21 @@ jobs:
           echo "📂 Files in gki-common/android/"
           ls -la gki-common/android/ | grep abi_gki_aarch64 || true
 
-          # Tự động chọn file ABI phù hợp
-          ABI_FILE=$(ls gki-common/android/abi_gki_aarch64_mtk || ls gki-common/android/abi_gki_aarch64_general || echo "")
-          if [ -z "$ABI_FILE" ]; then
-            echo "⚠️ Không tìm thấy file ABI, tạo file trống"
-            touch kernel-5.15/abi_symbollist.raw
-          else
+          ABI_FILE=""
+          if [ -f gki-common/android/abi_gki_aarch64_mtk ]; then
+            ABI_FILE="gki-common/android/abi_gki_aarch64_mtk"
+          elif [ -f gki-common/android/abi_gki_aarch64_general ]; then
+            ABI_FILE="gki-common/android/abi_gki_aarch64_general"
+          fi
+
+          if [ -n "$ABI_FILE" ]; then
             cp "$ABI_FILE" kernel-5.15/abi_symbollist.raw
             echo "✅ Copied ABI file: $ABI_FILE"
+          else
+            echo "⚠️ Không tìm thấy file ABI, tạo file rỗng"
+            touch kernel-5.15/abi_symbollist.raw
           fi
+
           ls -l kernel-5.15/abi_symbollist.raw || true
 
       - name: Clone utilities (AnyKernel3 & SUSFS)
@@ -61,10 +73,9 @@ jobs:
       - name: Fix Kconfig encoding
         run: |
           cd kernel-5.15
-          find drivers -name "Kconfig" -exec dos2unix {} \;
-          sed -i "s/’/'/g" drivers/input/sar/sx937x/Kconfig || true
-          sed -i "s/’/'/g" drivers/input/sar/stk501xx/Kconfig || true
-          sed -i 's/^[ \t]*//' drivers/power/supply/Kconfig || true
+          find . -name "Kconfig*" -exec dos2unix {} \;
+          find . -name "Kconfig*" -exec sed -i "s/’/'/g" {} \;
+          find . -name "Kconfig*" -exec sed -i 's/^[ \t]*//' {} \;
 
       - name: Select defconfig
         run: |
@@ -85,12 +96,17 @@ jobs:
           cd kernel-5.15
           chmod +x -R ./scripts
           make O=out ARCH=arm64 $DEFCONFIG
+          cat out/.config | head -50 || true
           make -j$(nproc --all) O=out ARCH=arm64 \
+            CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld \
+            || make -j4 O=out ARCH=arm64 \
             CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld
 
       - name: Pack AnyKernel3 zip
         run: |
           cp kernel-5.15/out/arch/arm64/boot/Image AnyKernel3/Image
+          (cd kernel-5.15/out/arch/arm64/boot && cp -r dtb* ../../../../AnyKernel3/ || true)
+          (cd kernel-5.15/out/arch/arm64/boot && cp -r dtbo* ../../../../AnyKernel3/ || true)
           cd AnyKernel3
           zip -r ../Kernel-A06-KSU-SUSFS.zip ./*
 
