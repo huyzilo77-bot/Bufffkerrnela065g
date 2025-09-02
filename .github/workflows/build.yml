@@ -27,20 +27,10 @@ jobs:
           mkdir kernel-5.15
           tar -xf kernel.tar -C kernel-5.15 --strip-components=1
 
-      - name: Ensure abi_symbollist.raw exists
+      - name: Disable ABI check
         run: |
-          cd kernel-5.15
-          # Root (dự phòng)
-          echo "" > abi_symbollist.raw
-          # Out folder (dự phòng)
-          mkdir -p out
-          echo "" > out/abi_symbollist.raw
-          # Android KERNEL_OBJ path (bắt buộc)
-          mkdir -p ../android/out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15
-          echo "" > ../android/out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
-
-          echo "[INFO] abi_symbollist.raw created in:"
-          find .. -name "abi_symbollist.raw"
+          echo "KBUILD_ABI_WHITELIST := /dev/null" >> kernel-5.15/Makefile
+          echo "[INFO] ABI check disabled in Makefile"
 
       - name: Debug defconfig files
         run: |
@@ -84,18 +74,10 @@ jobs:
           chmod +x -R ./scripts
 
           echo "⚙️ Dùng defconfig: $DEFCONFIG"
-
-          # Tạo defconfig
           make O=out ARCH=arm64 $DEFCONFIG
 
-          # Đảm bảo abi_symbollist.raw tồn tại trong KERNEL_OBJ sau defconfig
-          ABI_PATH="../android/out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15"
-          mkdir -p $ABI_PATH
-          if [ ! -f $ABI_PATH/abi_symbollist.raw ]; then
-            echo "" > $ABI_PATH/abi_symbollist.raw
-            echo "[INFO] Created abi_symbollist.raw in $ABI_PATH"
-          fi
-          ls -l $ABI_PATH/abi_symbollist.raw
+          # In ra version trong .config
+          grep "CONFIG_LOCALVERSION" out/.config || true
 
           # Build kernel
           make -j$(nproc --all) O=out ARCH=arm64 \
@@ -108,18 +90,13 @@ jobs:
 
       - name: Pack AnyKernel3 zip
         run: |
-          # Copy Image
           cp kernel-5.15/out/arch/arm64/boot/Image AnyKernel3/Image
-
-          # Copy dtb/dtbo nếu có
           if [ -f kernel-5.15/out/arch/arm64/boot/dtb ]; then
             cp kernel-5.15/out/arch/arm64/boot/dtb AnyKernel3/dtb
           fi
           if [ -f kernel-5.15/out/arch/arm64/boot/dtbo.img ]; then
             cp kernel-5.15/out/arch/arm64/boot/dtbo.img AnyKernel3/dtbo.img
           fi
-
-          # Đóng zip
           cd AnyKernel3
           zip -r ../Kernel-A06-KSU-SUSFS.zip ./*
 
