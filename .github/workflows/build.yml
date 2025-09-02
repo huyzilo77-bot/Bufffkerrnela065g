@@ -6,28 +6,23 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
-
     steps:
       - name: Checkout repo
         uses: actions/checkout@v3
 
+      - name: Show repo structure
+        run: |
+          echo "📂 Current Path: $(pwd)"
+          ls -R || true
+
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            git curl wget unzip zip build-essential bc bison flex \
-            libssl-dev libncurses5-dev libelf-dev ccache
-
-      - name: Setup toolchains
-        run: |
-          mkdir -p toolchains && cd toolchains
-          # Clang
-          wget https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/722c840a8e4d58b5ebdab62ce78eacdafd301208/clang-r450784e.tar.gz -O clang.tar.gz
-          mkdir clang && tar -xf clang.tar.gz -C clang
-          # GCC
-          wget https://developer.arm.com/-/media/Files/downloads/gnu/14.2.rel1/binrel/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O gcc.tar.xz
-          tar -xf gcc.tar.xz
-          cd ..
+          sudo apt-get install -y git device-tree-compiler lz4 xz-utils \
+            zlib1g-dev openjdk-17-jdk gcc g++ python3 python3-pip \
+            p7zip-full android-sdk-libsparse-utils erofs-utils \
+            flex bison gperf build-essential curl libssl-dev \
+            libncurses5-dev libncursesw5-dev libelf-dev ccache unzip jq
 
       - name: Clone kernel source
         run: |
@@ -37,26 +32,25 @@ jobs:
       - name: Apply KernelSU Next + SUSFS
         run: |
           cd kernel
-          curl -LSs https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/main/setup.sh | bash -s .
-          curl -LSs https://gitlab.com/simonpunk/susfs4ksu/-/raw/gki-android13-5.15/susfs.patch -o susfs.patch
-          git apply --ignore-space-change --ignore-whitespace susfs.patch || true
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/main/setup.sh" | bash -
+          curl -LSs "https://gitlab.com/simonpunk/susfs4ksu/-/raw/gki-android13-5.15/susfs.patch" -o susfs.patch
+          git apply susfs.patch
 
       - name: Build kernel
         run: |
           cd kernel
-          export PATH=$GITHUB_WORKSPACE/toolchains/clang/bin:$GITHUB_WORKSPACE/toolchains/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin:$PATH
-          make ARCH=arm64 a06x_00_defconfig
-          make ARCH=arm64 CC=clang CROSS_COMPILE=aarch64-none-linux-gnu- -j$(nproc)
+          make ARCH=arm64 a06x_q0_defconfig
+          make ARCH=arm64 -j$(nproc)
 
       - name: Pack with AnyKernel3
         run: |
-          git clone https://github.com/osm0sis/AnyKernel3.git -b master AnyKernel3
-          cp kernel/arch/arm64/boot/Image AnyKernel3/
+          git clone https://github.com/osm0sis/AnyKernel3.git
           cd AnyKernel3
+          cp -f ../kernel/arch/arm64/boot/Image ./zImage
           zip -r9 ../A06-Kernel-KSU-SUSFS.zip ./*
 
       - name: Upload Artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: A06-Kernel-KSU-SUSFS
           path: A06-Kernel-KSU-SUSFS.zip
