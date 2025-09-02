@@ -20,9 +20,12 @@ jobs:
 
       - name: Download Kernel Source (Release)
         run: |
-          wget -O kernel.tar "https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/tag/V1"
-          -C kernel --strip-components=1
-          ls kernel
+          wget -O kernel.tar "https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/kernel-5.15.tar"
+
+      - name: Extract Kernel Source
+        run: |
+          mkdir kernel
+          tar -xf kernel.tar -C kernel --strip-components=1
       - name: Extract Kernel Source
         run: |
           mkdir kernel && tar -xf kernel.tar -C kernel --strip-components=1
