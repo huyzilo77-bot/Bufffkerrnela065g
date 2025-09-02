@@ -32,18 +32,16 @@ jobs:
           echo "📂 Listing defconfigs in arch/arm64/configs:"
           ls -la kernel/arch/arm64/configs || true
           echo "✅ If you see a06_defconfig or a06x_defconfig here, that's the one to use."
+          
+      - name: Clone AnyKernel3 & SUSFS
+        run: |
+           git clone https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+           git clone -b gki-android13-5.15 https://gitlab.com/simonpunk/susfs4ksu.git susfs
 
-      # Clone AnyKernel3 và SUSFS
-- name: Clone AnyKernel3 & SUSFS
-  run: |
-    git clone https://github.com/osm0sis/AnyKernel3.git AnyKernel3
-    git clone -b gki-android13-5.15 https://gitlab.com/simonpunk/susfs4ksu.git susfs
-
-# Thêm KernelSU Next
-- name: Apply KernelSU Next
-  run: |
-    cd kernel
-    curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -
+      - name: Apply KernelSU Next
+        run: |
+         cd kernel
+         curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -
 
 # Áp dụng patch SUSFS
 - name: Apply SUSFS Patch (android13-5.15)
