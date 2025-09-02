@@ -6,75 +6,67 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
+
     steps:
+      # B1: Checkout repo
       - name: Checkout repo
         uses: actions/checkout@v3
 
+      # B2: Debug - in ra thư mục hiện tại
+      - name: Debug repo structure
+        run: |
+          echo "📂 Current Path: $(pwd)"
+          echo "📂 Repo files:"
+          ls -R . || true
+          echo "📂 Check configs folder:"
+          ls -R .github/configs || true
+
+      # B3: Cài dependencies
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             git wget curl build-essential bc bison flex \
             libssl-dev libncurses5-dev libelf-dev ccache unzip zip jq
-            
-         - name: Debug environment
+
+      # B4: Đọc file JSON (a06.json)
+      - name: Parse config JSON
+        id: parse
         run: |
-          echo "📂 Current Path: $(pwd)"
-          echo "📂 Repo Files:"
-          ls -R . || true
-          echo "📂 Configs folder:"
-          ls -R .github/configs || true
-          echo "ENV Variables:"
-          env
-          
+          CONFIG_FILE=".github/configs/a06.json"
+          if [ ! -f "$CONFIG_FILE" ]; then
+            echo "❌ Config file $CONFIG_FILE not found!"
+            exit 1
+          fi
+
+          KERNEL_REPO=$(jq -r '.repos[0].kernelSource.repo' $CONFIG_FILE)
+          KERNEL_BRANCH=$(jq -r '.repos[0].kernelSource.branch' $CONFIG_FILE)
+          DEFCONFIG=$(jq -r '.repos[0].kernelSource.defconfig' $CONFIG_FILE)
+
+          echo "KERNEL_REPO=$KERNEL_REPO" >> $GITHUB_ENV
+          echo "KERNEL_BRANCH=$KERNEL_BRANCH" >> $GITHUB_ENV
+          echo "DEFCONFIG=$DEFCONFIG" >> $GITHUB_ENV
+
+          echo "✅ Parsed:"
+          echo "Repo: $KERNEL_REPO"
+          echo "Branch: $KERNEL_BRANCH"
+          echo "Defconfig: $DEFCONFIG"
+
+      # B5: Clone kernel source
       - name: Clone kernel source
         run: |
-          git clone --depth=1 -b main https://github.com/huyzilo77-bot/Samsung-A06-Kernel.git kernel
-          cd kernel
-          echo "Kernel HEAD: $(git rev-parse HEAD)"
+          echo "Cloning $KERNEL_REPO branch $KERNEL_BRANCH"
+          git clone --depth=1 -b $KERNEL_BRANCH $KERNEL_REPO kernel || exit 1
+          ls -la kernel
 
-      - name: Add KernelSU Next
+      # B6: Build thử (chưa full, chỉ test defconfig)
+      - name: Test defconfig
         run: |
           cd kernel
-          curl -LSs https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh | bash -
-
-      - name: Apply SUSFS patches
-        run: |
-          git clone -b gki-android13-5.15 https://gitlab.com/simonpunk/susfs4ksu.git susfs4ksu
-          cd kernel
-
-          # Copy patch chính
-          cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch ./common/
-          cd common
-          patch -p1 --forward < 50_add_susfs_in_gki-android13-5.15.patch || true
-          cd ..
-
-          # Copy thư mục fs và include
-          cp -r ../susfs4ksu/kernel_patches/fs/* ./common/fs/
-          cp -r ../susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
-
-          # Enable SUSFS cho KernelSU Next
-          cd KernelSU-Next
-          cp ../../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./
-          patch -p1 --forward < 10_enable_susfs_for_ksu.patch || true
-
-      - name: Build kernel
-        run: |
-          cd kernel
-          export ARCH=arm64
-          export SUBARCH=arm64
-          make O=out a06x_00_defconfig
-          make -j$(nproc) O=out ARCH=arm64 CC=clang CROSS_COMPILE=aarch64-none-linux-gnu-
-
-      - name: Pack AnyKernel3
-        run: |
-          git clone https://github.com/osm0sis/AnyKernel3 AnyKernel3
-          cp kernel/out/arch/arm64/boot/Image AnyKernel3/
-          cd AnyKernel3
-          zip -r9 ../A06-Kernel-KSU-SUSFS.zip *
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: A06-Kernel-KSU-SUSFS
-          path: A06-Kernel-KSU-SUSFS.zip
+          if [ -f Makefile ]; then
+            echo "✅ Kernel source ok, running defconfig..."
+            make ARCH=arm64 $DEFCONFIG || true
+          else
+            echo "❌ Kernel source invalid (Makefile missing)"
+            exit 1
+          fi
