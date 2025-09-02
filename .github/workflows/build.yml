@@ -57,7 +57,7 @@ jobs:
           set -euo pipefail
           cd kernel-5.15
 
-          # chọn defconfig
+          # --- chọn defconfig
           if [ -f arch/arm64/configs/a06x_defconfig ]; then
             DEFCONFIG=a06x_defconfig
           elif [ -f arch/arm64/configs/a06_defconfig ]; then
@@ -68,16 +68,16 @@ jobs:
           fi
           echo "DEFCONFIG=$DEFCONFIG" >> "$GITHUB_ENV"
 
-          # Clone ABI whitelist
+          # --- Clone ABI whitelist
           cd ..
           git clone --depth=1 https://android.googlesource.com/kernel/common -b android13-5.15 gki-common
           cd kernel-5.15
 
-          ABI_FILE=$(ls ../gki-common/android/ | grep "abi_gki_aarch64_mtk" | head -n1 || true)
+          ABI_FILE=$(ls ../gki-common/android/ | grep -m1 "abi_gki_aarch64_mtk" || true)
           if [ -n "$ABI_FILE" ]; then
             cp ../gki-common/android/$ABI_FILE abi_symbollist.raw
           else
-            ABI_FILE=$(ls ../gki-common/android/ | grep "abi_gki_aarch64_generic" | head -n1 || true)
+            ABI_FILE=$(ls ../gki-common/android/ | grep -m1 "abi_gki_aarch64_generic" || true)
             if [ -n "$ABI_FILE" ]; then
               cp ../gki-common/android/$ABI_FILE abi_symbollist.raw
             else
@@ -85,26 +85,30 @@ jobs:
             fi
           fi
 
-          # Copy ABI vào các path hay được tham chiếu
+          # --- Copy ABI vào các path hay được tham chiếu
           mkdir -p abi out out/abi out/android/abi out/obj/KERNEL_OBJ/kernel-5.15
-          cp abi_symbollist.raw abi/abi_symbollist.raw
-          cp abi_symbollist.raw out/abi/abi_symbollist.raw
-          cp abi_symbollist.raw out/android/abi/abi_symbollist.raw
-          cp abi_symbollist.raw out/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
-          # thêm hai path tuyệt đối đề phòng vendor hard-code
+          cp -f abi_symbollist.raw abi/abi_symbollist.raw
+          cp -f abi_symbollist.raw out/abi/abi_symbollist.raw
+          cp -f abi_symbollist.raw out/android/abi/abi_symbollist.raw
+          cp -f abi_symbollist.raw out/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
+          # thêm 2 path tuyệt đối đề phòng vendor hard-code
           for prod in a06x a06; do
             ABS="/home/dpi/qb5_8814/workspace/P4_1716/android/out/target/product/${prod}/obj/KERNEL_OBJ/kernel-5.15"
             sudo mkdir -p "$ABS"
             sudo install -m 644 abi_symbollist.raw "$ABS/abi_symbollist.raw"
           done
 
-          # Sửa ký tự unicode hay gặp nhưng GIỮ tab
-          find drivers -name "Kconfig*" -type f -print0 | xargs -0 sed -i "s/’/'/g; s/‘/'/g"
-          find drivers -name "Kconfig*" -type f -print0 | xargs -0 perl -i -pe 's/\x{00A0}/ /g; s/\x{FEFF}//g; s/\r$//'
+          # --- Sanitize Kconfig (xoá mọi ký tự ngoài ASCII, GIỮ tab)
+          find . -name "Kconfig*" -type f -exec sed -i 's/[^[:print:]\t]//g' {} +
+          # đổi dấu nháy cong thành thẳng
+          find . -name "Kconfig*" -type f -exec sed -i "s/’/'/g; s/‘/'/g; s/“/\"/g; s/”/\"/g" {} +
 
-          # Build + log
+          echo "🔎 Kiểm tra ký tự lạ còn sót:"
+          grep -nP '[^\x00-\x7F]' -R drivers/ || true
+
+          # --- Build + log
           chmod +x -R ./scripts
           make O=out ARCH=arm64 "$DEFCONFIG"
           make O=out ARCH=arm64 olddefconfig
-          # ghi log nhưng vẫn trả exit code của make
-          ( make -j"$(nproc --all)" O=out ARCH=arm64 CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld 2>&1 | tee build.log ); test ${PIPESTATUS[0]} -eq 0
+          ( make -j"$(nproc --all)" O=out ARCH=arm64 \
+              CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld 2>&1 | tee build.log ); test ${PIPESTATUS[0]} -eq 0
