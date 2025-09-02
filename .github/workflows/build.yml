@@ -31,8 +31,10 @@ jobs:
         run: |
           cd kernel-5.15
           echo "" > abi_symbollist.raw
-          echo "[INFO] Created empty abi_symbollist.raw at $(pwd)"
-          ls -l abi_symbollist.raw
+          mkdir -p out
+          echo "" > out/abi_symbollist.raw
+          echo "[INFO] Created abi_symbollist.raw in root and out/"
+          ls -l abi_symbollist.raw out/abi_symbollist.raw
 
       - name: Debug defconfig files
         run: |
@@ -61,7 +63,7 @@ jobs:
           cd kernel-5.15
           chmod +x -R ./scripts
 
-          # Tìm defconfig hợp lệ
+          # Chọn defconfig hợp lệ
           if [ -f "arch/arm64/configs/a06x_defconfig" ]; then
             DEFCONFIG=a06x_defconfig
           elif [ -f "arch/arm64/configs/a06_defconfig" ]; then
@@ -75,7 +77,7 @@ jobs:
           # Tạo defconfig
           make O=out ARCH=arm64 $DEFCONFIG
 
-          # Biên dịch kernel với clang/llvm
+          # Build kernel
           make -j$(nproc --all) O=out ARCH=arm64 \
             CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld
 
@@ -86,7 +88,7 @@ jobs:
 
       - name: Pack AnyKernel3 zip
         run: |
-          # Copy kernel Image
+          # Copy Image
           cp kernel-5.15/out/arch/arm64/boot/Image AnyKernel3/Image
 
           # Copy dtb/dtbo nếu có
@@ -97,7 +99,7 @@ jobs:
             cp kernel-5.15/out/arch/arm64/boot/dtbo.img AnyKernel3/dtbo.img
           fi
 
-          # Đóng gói zip
+          # Đóng zip
           cd AnyKernel3
           zip -r ../Kernel-A06-KSU-SUSFS.zip ./*
 
