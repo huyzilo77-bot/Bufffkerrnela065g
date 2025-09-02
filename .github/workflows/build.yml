@@ -1,0 +1,43 @@
+{
+  "name": "Samsung-A06",
+  "image": {
+    "use": false,
+    "imageurl": ""
+  },
+  "kernelSource": {
+    "name": "Samsung-A06-Kernel",
+    "repo": "https://github.com/huyzilo77-bot/Samsung-A06-Kernel",
+    "branch": "main",
+    "device": "a06",
+    "defconfig": "a06x_00_defconfig"
+  },
+  "kernelsu": {
+    "enable": true,
+    "setupLink": "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/main/setup.sh",
+    "setupArg": ".",
+    "setupName": "KernelSU-Next",
+    "susfsLink": "https://gitlab.com/simonpunk/susfs4ksu/-/raw/gki-android13-5.15/susfs.patch",
+    "needPatch": true
+  },
+  "AnyKernel3": {
+    "use": true,
+    "repo": "https://github.com/osm0sis/AnyKernel3",
+    "branch": "master",
+    "release": true
+  },
+  "toolchains": [
+    {
+      "name": "clang",
+      "url": "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master/clang-r450784e.tar.gz",
+      "binPath": ["bin"]
+    },
+    {
+      "name": "gcc",
+      "url": "https://developer.arm.com/-/media/Files/downloads/gnu/14.2.rel1/binrel/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz",
+      "binPath": ["arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu/bin"]
+    }
+  ],
+  "ccache": false,
+  "useKernelPatch": false,
+  "useImage": false
+}
