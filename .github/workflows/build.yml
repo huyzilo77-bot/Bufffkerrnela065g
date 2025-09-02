@@ -30,19 +30,17 @@ jobs:
       - name: Ensure abi_symbollist.raw exists
         run: |
           cd kernel-5.15
-          # Root
+          # Root (dự phòng)
           echo "" > abi_symbollist.raw
-          # Out folder
+          # Out folder (dự phòng)
           mkdir -p out
           echo "" > out/abi_symbollist.raw
-          # Android KERNEL_OBJ path
-          mkdir -p ../out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15
-          echo "" > ../out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
+          # Android KERNEL_OBJ path (bắt buộc)
+          mkdir -p ../android/out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15
+          echo "" > ../android/out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
 
-          echo "[INFO] Created abi_symbollist.raw in:"
-          ls -l abi_symbollist.raw
-          ls -l out/abi_symbollist.raw
-          ls -l ../out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
+          echo "[INFO] abi_symbollist.raw created in:"
+          find .. -name "abi_symbollist.raw"
 
       - name: Debug defconfig files
         run: |
@@ -66,12 +64,9 @@ jobs:
           cp -r ../susfs/kernel_patches/fs/* fs/ || true
           cp -r ../susfs/kernel_patches/include/linux/* include/linux/ || true
 
-      - name: Build Kernel
+      - name: Select defconfig
         run: |
           cd kernel-5.15
-          chmod +x -R ./scripts
-
-          # Chọn defconfig hợp lệ
           if [ -f "arch/arm64/configs/a06x_defconfig" ]; then
             DEFCONFIG=a06x_defconfig
           elif [ -f "arch/arm64/configs/a06_defconfig" ]; then
@@ -81,9 +76,21 @@ jobs:
             exit 1
           fi
           echo "✅ Sử dụng defconfig: $DEFCONFIG"
+          echo "DEFCONFIG=$DEFCONFIG" >> $GITHUB_ENV
+
+      - name: Build Kernel
+        run: |
+          cd kernel-5.15
+          chmod +x -R ./scripts
+
+          echo "⚙️ Dùng defconfig: $DEFCONFIG"
+          echo "📦 Bắt đầu build kernel..."
 
           # Tạo defconfig
           make O=out ARCH=arm64 $DEFCONFIG
+
+          # In ra version trong .config
+          grep "CONFIG_LOCALVERSION" out/.config || true
 
           # Build kernel
           make -j$(nproc --all) O=out ARCH=arm64 \
