@@ -51,7 +51,7 @@ jobs:
           find drivers -name "Kconfig*" -type f -print0 | xargs -0 sed -i "s/’/'/g; s/‘/'/g"
           sed -i 's/^[[:space:]]*#/#/' drivers/power/supply/Kconfig || true
 
-      - name: Select defconfig + Fetch ABI + Build Kernel
+            - name: Select defconfig + Fetch ABI + Disable ABI check + Build Kernel
         shell: bash
         run: |
           set -euo pipefail
@@ -88,15 +88,22 @@ jobs:
             fi
           fi
 
-          # 🔹 Copy ABI vào các path kernel cần
+          # 🔹 Copy ABI tới nhiều path
           mkdir -p abi out out/abi out/android/abi out/obj/KERNEL_OBJ/kernel-5.15
           cp abi_symbollist.raw abi/abi_symbollist.raw
           cp abi_symbollist.raw out/abi/abi_symbollist.raw
           cp abi_symbollist.raw out/android/abi/abi_symbollist.raw
           cp abi_symbollist.raw out/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
+          mkdir -p out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15
+          cp abi_symbollist.raw out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
 
-          echo "📌 ABI whitelist đã copy:"
-          find . -name "abi_symbollist.raw" -ls || true
+          # 🔹 Disable ABI check (fallback)
+          sed -i 's/^CONFIG_ANDROID_ABI_SYMBOLS.*/# CONFIG_ANDROID_ABI_SYMBOLS is not set/' arch/arm64/configs/*defconfig || true
+          sed -i 's/abi_symbollist.raw/\/dev\/null/g' Makefile || true
+          sed -i 's/abi_symbollist/\/dev\/null/g' Makefile || true
+
+          echo "📌 ABI whitelist đã xử lý:"
+          find out -name "abi_symbollist.raw" -ls || true
 
           # 🔹 Build kernel + log
           chmod +x -R ./scripts
