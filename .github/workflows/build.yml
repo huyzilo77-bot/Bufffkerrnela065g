@@ -1,4 +1,4 @@
-name: Build Samsung A06 Kernel (KSU Next + SUSFS)
+name: Build Samsung A06 Kernel (KSU + SUSFS + Real ABI)
 
 on:
   workflow_dispatch:
@@ -9,16 +9,15 @@ jobs:
     timeout-minutes: 120
 
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install deps
+      - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y git build-essential bc bison flex \
-            libssl-dev libelf-dev ccache wget unzip python3 clang llvm lld
+          sudo apt install -y git wget build-essential bc bison flex \
+            libssl-dev libelf-dev ccache python3 clang llvm lld
 
-      - name: Download Kernel Source (Release)
+      - name: Download Kernel Source
         run: |
           wget -O kernel.tar "https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/kernel-5.15.tar"
 
@@ -27,27 +26,29 @@ jobs:
           mkdir kernel-5.15
           tar -xf kernel.tar -C kernel-5.15 --strip-components=1
 
-      - name: Disable ABI check
+      - name: Fetch real abi_symbollist.raw from AOSP GKI
         run: |
-          echo "KBUILD_ABI_WHITELIST := /dev/null" >> kernel-5.15/Makefile
-          echo "[INFO] ABI check disabled in Makefile"
+          git clone --depth=1 https://android.googlesource.com/kernel/common -b android13-5.15-2025-03_r5 gki-common
+          cp gki-common/abi_symbollist.raw kernel-5.15/
+          echo "[INFO] Copied abi_symbollist.raw from GKI branch"
+          ls -l kernel-5.15/abi_symbollist.raw
 
-      - name: Debug defconfig files
+      - name: Debug defconfigs
         run: |
           echo "📂 Listing defconfigs in arch/arm64/configs:"
           ls -la kernel-5.15/arch/arm64/configs || true
 
-      - name: Clone AnyKernel3 & SUSFS
+      - name: Clone utilities (AnyKernel3 & SUSFS)
         run: |
           git clone https://github.com/osm0sis/AnyKernel3.git AnyKernel3
           git clone -b gki-android13-5.15 https://gitlab.com/simonpunk/susfs4ksu.git susfs
 
-      - name: Apply KernelSU Next
+      - name: Apply KernelSU-Next
         run: |
           cd kernel-5.15
-          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -
+          curl -LSs https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh | bash -
 
-      - name: Apply SUSFS Patch (android13-5.15)
+      - name: Apply SUSFS patch
         run: |
           cd kernel-5.15
           patch -p1 < ../susfs/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch || true
@@ -57,51 +58,28 @@ jobs:
       - name: Select defconfig
         run: |
           cd kernel-5.15
-          if [ -f "arch/arm64/configs/a06x_defconfig" ]; then
-            DEFCONFIG=a06x_defconfig
-          elif [ -f "arch/arm64/configs/a06_defconfig" ]; then
-            DEFCONFIG=a06_defconfig
-          else
-            echo "❌ Không tìm thấy defconfig cho A06!"
-            exit 1
-          fi
-          echo "✅ Sử dụng defconfig: $DEFCONFIG"
+          if [ -f arch/arm64/configs/a06x_defconfig ]; then DEFCONFIG=a06x_defconfig
+          elif [ -f arch/arm64/configs/a06_defconfig ]; then DEFCONFIG=a06_defconfig
+          else echo "❌ Không tìm thấy defconfig"; exit 1; fi
           echo "DEFCONFIG=$DEFCONFIG" >> $GITHUB_ENV
+          echo "✅ Sử dụng defconfig: $DEFCONFIG"
 
       - name: Build Kernel
         run: |
           cd kernel-5.15
-          chmod +x -R ./scripts
-
-          echo "⚙️ Dùng defconfig: $DEFCONFIG"
+          chmod +x -R scripts
           make O=out ARCH=arm64 $DEFCONFIG
-
-          # In ra version trong .config
-          grep "CONFIG_LOCALVERSION" out/.config || true
-
-          # Build kernel
-          make -j$(nproc --all) O=out ARCH=arm64 \
-          CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld \
-          IGNORE_ABI_CHECKS=1
-
-      - name: Check Kernel Version
-        run: |
-          echo "🔍 Kiểm tra version trong Image:"
-          strings kernel-5.15/out/arch/arm64/boot/Image | grep "Linux version" || true
+          make -j$(nproc) O=out ARCH=arm64 \
+            CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld
 
       - name: Pack AnyKernel3 zip
         run: |
           cp kernel-5.15/out/arch/arm64/boot/Image AnyKernel3/Image
-          if [ -f kernel-5.15/out/arch/arm64/boot/dtb ]; then
-            cp kernel-5.15/out/arch/arm64/boot/dtb AnyKernel3/dtb
-          fi
-          if [ -f kernel-5.15/out/arch/arm64/boot/dtbo.img ]; then
-            cp kernel-5.15/out/arch/arm64/boot/dtbo.img AnyKernel3/dtbo.img
-          fi
-          cd AnyKernel3
-          zip -r ../Kernel-A06-KSU-SUSFS.zip ./*
+          [ -f kernel-5.15/out/arch/arm64/boot/dtb ] && cp kernel-5.15/out/arch/arm64/boot/dtb AnyKernel3/dtb
+          [ -f kernel-5.15/out/arch/arm64/boot/dtbo.img ] && cp kernel-5.15/out/arch/arm64/boot/dtbo.img AnyKernel3/dtbo.img
+          cd AnyKernel3 && zip -r ../Kernel-A06-KSU-SUSFS.zip ./*
 
-      - name: Upload artifacts (Image + AnyKernel3 + dtb/dtbo)
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: Kernel-A06-KSU-SUSFS
