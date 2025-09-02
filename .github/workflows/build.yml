@@ -44,9 +44,14 @@ jobs:
       - name: Ensure ABI whitelist
         run: |
           cd kernel-5.15
-          mkdir -p abi
+          mkdir -p abi out/abi
+          if [ ! -f abi_symbollist.raw ]; then
+            echo "⚠️ ABI whitelist rỗng"
+            touch abi_symbollist.raw
+          fi
           cp abi_symbollist.raw abi/abi_symbollist.raw
-          ls -l abi_symbollist.raw abi/abi_symbollist.raw
+          cp abi_symbollist.raw out/abi/abi_symbollist.raw
+          ls -l abi_symbollist.raw abi/abi_symbollist.raw out/abi/abi_symbollist.raw
 
       - name: Clone utilities (AnyKernel3 & SUSFS)
         run: |
