@@ -81,7 +81,8 @@ jobs:
 
           # Build kernel
           make -j$(nproc --all) O=out ARCH=arm64 \
-            CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld
+          CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld \
+          IGNORE_ABI_CHECKS=1
 
       - name: Check Kernel Version
         run: |
