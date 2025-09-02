@@ -29,8 +29,10 @@ jobs:
       - name: Fetch real abi_symbollist.raw from AOSP GKI
         run: |
           git clone --depth=1 https://android.googlesource.com/kernel/common -b android13-5.15-2025-03_r5 gki-common
-          cp gki-common/abi_symbollist.raw kernel-5.15/
-          echo "[INFO] Copied abi_symbollist.raw from GKI branch"
+          echo "📂 Danh sách file trong gki-common/android/"
+          ls -la gki-common/android | grep abi || true
+          cp gki-common/android/abi_symbollist.raw kernel-5.15/
+          echo "[INFO] Copied abi_symbollist.raw vào kernel-5.15/"
           ls -l kernel-5.15/abi_symbollist.raw
 
       - name: Debug defconfigs
