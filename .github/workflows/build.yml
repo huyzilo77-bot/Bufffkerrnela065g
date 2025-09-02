@@ -5,47 +5,64 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
 
     steps:
-    - name: Checkout repo
-      uses: actions/checkout@v3
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y git build-essential bc bison flex \
-          libssl-dev libncurses5-dev libncursesw5-dev ccache unzip zip wget curl \
-          openjdk-17-jdk
+      - name: Install deps
+        run: |
+          sudo apt update
+          sudo apt install -y git build-essential bc bison flex \
+            libssl-dev libelf-dev ccache wget unzip python3
 
-    - name: Download kernel source
-      run: |
-        wget -O kernel.tar https://github.com/huyzilo77-bot/Bufffkernela065g/releases/download/v1/kernel-5.15.tar
-        mkdir kernel
-        tar -xf kernel.tar -C kernel --strip-components=1
-        ls -la kernel
+      - name: Download Kernel Source (Release)
+        run: |
+          wget -O kernel.tar "https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/v1/kernel-5.15.tar"
+          mkdir kernel && tar -xf kernel.tar -C kernel --strip-components=1
+          ls kernel
 
-    - name: Apply KernelSU Next + SUSFS
-      run: |
-        cd kernel
-        curl -LSs https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/main/setup.sh | bash -
-        patch -p1 < <(curl -sSL https://gitlab.com/simonpunk/susfs4ksu/-/raw/gki-android13-5.15/susfs.patch)
+      - name: Clone AnyKernel3 & SUSFS
+        run: |
+          git clone https://github.com/osm0sis/AnyKernel3.git
+          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15
 
-    - name: Build kernel
-      run: |
-        cd kernel
-        make ARCH=arm64 a06x_00_defconfig
-        make ARCH=arm64 -j$(nproc)
+      - name: Apply KernelSU Next
+        run: |
+          cd kernel
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash
 
-    - name: Pack with AnyKernel3
-      run: |
-        git clone https://github.com/osm0sis/AnyKernel3.git
-        cp kernel/arch/arm64/boot/Image AnyKernel3/
-        cd AnyKernel3
-        zip -r9 ../kernel-build.zip *
+      - name: Apply SUSFS Patch (android13-5.15)
+        run: |
+          cd kernel
+          patch -p1 < ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch || true
+          cp ../susfs4ksu/kernel_patches/fs/* fs/ || true
+          cp ../susfs4ksu/kernel_patches/include/linux/* include/linux/ || true
 
-    - name: Upload Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: kernel-build
-        path: kernel-build.zip
+      - name: Enable KSU + SUSFS Configs
+        run: |
+          cd kernel
+          echo "CONFIG_KSU=y" >> arch/arm64/configs/a06x_defconfig
+          echo "CONFIG_KSU_SUSFS=y" >> arch/arm64/configs/a06x_defconfig
+
+      - name: Build Kernel
+        run: |
+          cd kernel
+          make O=out ARCH=arm64 a06x_defconfig
+          make -j$(nproc) O=out ARCH=arm64 CC=clang
+
+      - name: Pack AnyKernel3 zip
+        run: |
+          cp kernel/out/arch/arm64/boot/Image AnyKernel3/Image
+          cd AnyKernel3
+          zip -r ../Kernel-A06-KSU-SUSFS.zip ./*
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kernel-A06-KSU-SUSFS
+          path: |
+            *.zip
+            kernel/out/arch/arm64/boot/Image
