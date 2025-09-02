@@ -84,13 +84,18 @@ jobs:
           chmod +x -R ./scripts
 
           echo "⚙️ Dùng defconfig: $DEFCONFIG"
-          echo "📦 Bắt đầu build kernel..."
 
           # Tạo defconfig
           make O=out ARCH=arm64 $DEFCONFIG
 
-          # In ra version trong .config
-          grep "CONFIG_LOCALVERSION" out/.config || true
+          # Đảm bảo abi_symbollist.raw tồn tại trong KERNEL_OBJ sau defconfig
+          ABI_PATH="../android/out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15"
+          mkdir -p $ABI_PATH
+          if [ ! -f $ABI_PATH/abi_symbollist.raw ]; then
+            echo "" > $ABI_PATH/abi_symbollist.raw
+            echo "[INFO] Created abi_symbollist.raw in $ABI_PATH"
+          fi
+          ls -l $ABI_PATH/abi_symbollist.raw
 
           # Build kernel
           make -j$(nproc --all) O=out ARCH=arm64 \
