@@ -27,6 +27,13 @@ jobs:
           mkdir kernel-5.15
           tar -xf kernel.tar -C kernel-5.15 --strip-components=1
 
+      - name: Ensure abi_symbollist.raw exists
+        run: |
+          cd kernel-5.15
+          echo "" > abi_symbollist.raw
+          echo "[INFO] Created empty abi_symbollist.raw at $(pwd)"
+          ls -l abi_symbollist.raw
+
       - name: Debug defconfig files
         run: |
           echo "📂 Listing defconfigs in arch/arm64/configs:"
@@ -48,15 +55,6 @@ jobs:
           patch -p1 < ../susfs/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch || true
           cp -r ../susfs/kernel_patches/fs/* fs/ || true
           cp -r ../susfs/kernel_patches/include/linux/* include/linux/ || true
-
-      - name: Ensure abi_symbollist.raw exists
-        run: |
-          cd kernel-5.15
-          if [ ! -f abi_symbollist.raw ]; then
-            echo "" > abi_symbollist.raw
-            echo "[INFO] Created empty abi_symbollist.raw at $(pwd)"
-          fi
-          ls -l abi_symbollist.raw
 
       - name: Build Kernel
         run: |
