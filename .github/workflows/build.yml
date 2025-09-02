@@ -26,26 +26,24 @@ jobs:
             libssl-dev libncurses5-dev libelf-dev ccache unzip zip jq
 
       - name: Parse config JSON
-        id: parse
-        run: |
-          CONFIG_FILE=".github/configs/a06.json"
-          if [ ! -f "$CONFIG_FILE" ]; then
-            echo "❌ Config file $CONFIG_FILE not found!"
-            exit 1
-          fi
+  id: parse
+  run: |
+    CONFIG_FILE=".github/configs/a06.json"
+    if [ ! -f "$CONFIG_FILE" ]; then
+      echo "❌ Config file $CONFIG_FILE not found!"
+      exit 1
+    fi
 
-          KERNEL_REPO=$(jq -r '.repos[0].kernelSource.repo' $CONFIG_FILE)
-          KERNEL_BRANCH=$(jq -r '.repos[0].kernelSource.branch' $CONFIG_FILE)
-          DEFCONFIG=$(jq -r '.repos[0].kernelSource.defconfig' $CONFIG_FILE)
+    echo "===== FILE CONTENT ====="
+    cat "$CONFIG_FILE"
+    echo "===== END CONTENT ====="
 
-          echo "KERNEL_REPO=$KERNEL_REPO" >> $GITHUB_ENV
-          echo "KERNEL_BRANCH=$KERNEL_BRANCH" >> $GITHUB_ENV
-          echo "DEFCONFIG=$DEFCONFIG" >> $GITHUB_ENV
+    echo "Running jq validation..."
+    jq . "$CONFIG_FILE" || exit 1
 
-          echo "✅ Parsed:"
-          echo "Repo: $KERNEL_REPO"
-          echo "Branch: $KERNEL_BRANCH"
-          echo "Defconfig: $DEFCONFIG"
+    KERNEL_REPO=$(jq -r '.repos[0].kernelSource.repo' $CONFIG_FILE)
+    KERNEL_BRANCH=$(jq -r '.repos[0].kernelSource.branch' $CONFIG_FILE)
+    DEFCONFIG=$(jq -r '.repos[0].kernelSource.defconfig' $CONFIG_FILE)
 
       - name: Clone kernel source
         run: |
