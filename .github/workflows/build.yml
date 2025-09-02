@@ -43,13 +43,13 @@ jobs:
          cd kernel
          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -
 
-# Áp dụng patch SUSFS
-- name: Apply SUSFS Patch (android13-5.15)
-  run: |
-    cd kernel
-    patch -p1 < ../susfs/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch || true
-    cp -r ../susfs/kernel_patches/fs/* fs/ || true
-    cp -r ../susfs/kernel_patches/include/linux/* include/linux/ || true
+
+     - name: Apply SUSFS Patch (android13-5.15)
+        run: |
+         cd kernel
+         patch -p1 < ../susfs/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch || true
+         cp -r ../susfs/kernel_patches/fs/* fs/ || true
+         cp -r ../susfs/kernel_patches/include/linux/* include/linux/ || true
     
       - name: Build Kernel
   run: |
