@@ -18,31 +18,17 @@ jobs:
           sudo apt install -y git wget curl build-essential bc bison flex \
             libssl-dev libelf-dev ccache unzip python3 clang llvm lld dos2unix
 
-      - name: Download Kernel Source (Release auto-detect)
-        run: |
-          echo "⬇️ Tải kernel source tự động từ release V1"
-          ASSET_URL=$(curl -s https://api.github.com/repos/huyzilo77-bot/Bufffkernela065g/releases/tags/V1 \
-            | grep "browser_download_url" \
-            | head -n 1 \
-            | cut -d '"' -f 4)
-
-          if [ -z "$ASSET_URL" ]; then
-            echo "❌ Không tìm thấy asset trong release!"
-            exit 1
-          fi
-
-          echo "📌 Asset URL: $ASSET_URL"
-          wget -nv -O kernel.tar "$ASSET_URL"
-
-          mkdir -p kernel-5.15
-          if file kernel.tar | grep -q "gzip"; then
-            tar -xzf kernel.tar -C kernel-5.15 --strip-components=1
-          else
-            tar -xf kernel.tar -C kernel-5.15 --strip-components=1
-          fi
-
-          echo "✅ Giải nén thành công"
-          ls -la kernel-5.15 | head -20
+      - name: Download Kernel Source (Release)
+  run: |
+    echo "⬇️ Tải kernel source từ release V1"
+    wget -nv -O kernel.tar "https://github.com/huyzilo77-bot/Bufffkernela065g/releases/download/V1/kernel-5.15.tar" || {
+      echo "❌ Không tải được kernel source!"
+      exit 1
+    }
+    mkdir -p kernel-5.15
+    tar -xf kernel.tar -C kernel-5.15 --strip-components=1
+    echo "✅ Giải nén thành công"
+    ls -la kernel-5.15
 
       - name: Fetch ABI whitelist from AOSP GKI
         run: |
