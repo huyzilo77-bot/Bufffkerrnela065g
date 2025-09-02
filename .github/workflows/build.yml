@@ -82,20 +82,25 @@ jobs:
           cd kernel-5.15
           chmod +x -R ./scripts
 
-          # 🔧 Tạo config
+          # 🛠 Tạo config từ defconfig
           make O=out ARCH=arm64 ${{ env.DEFCONFIG }}
           yes "" | make O=out ARCH=arm64 olddefconfig
 
-          # 🔑 Fix ABI symbollist path
-          mkdir -p abi out/abi out/obj/KERNEL_OBJ/kernel-5.15
+          # 🔑 Fix ABI symbollist path (Samsung/MTK cần nhiều chỗ)
+          mkdir -p abi out/abi out/android/abi out/obj/KERNEL_OBJ/kernel-5.15
           if [ ! -f abi_symbollist.raw ]; then
             echo "⚠️ Tạo file abi_symbollist.raw rỗng"
             touch abi_symbollist.raw
           fi
+
+          # Copy vào tất cả nơi kernel có thể gọi
           cp abi_symbollist.raw abi/abi_symbollist.raw
           cp abi_symbollist.raw out/abi/abi_symbollist.raw
+          cp abi_symbollist.raw out/android/abi/abi_symbollist.raw
           cp abi_symbollist.raw out/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
-          ls -l abi/abi_symbollist.raw out/abi/abi_symbollist.raw out/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
+
+          # Log kiểm tra
+          find out -name "abi_symbollist.raw" -ls || true
 
           # 🚀 Build kernel
           make -j$(nproc --all) O=out ARCH=arm64 \
