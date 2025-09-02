@@ -16,7 +16,8 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y git build-essential bc bison flex \
-            libssl-dev libelf-dev ccache wget unzip python3
+            libssl-dev libelf-dev ccache wget unzip python3 clang \
+            llvm lld
 
       - name: Download Kernel Source (Release)
         run: |
@@ -31,38 +32,51 @@ jobs:
         run: |
           echo "📂 Listing defconfigs in arch/arm64/configs:"
           ls -la kernel/arch/arm64/configs || true
-          echo "✅ If you see a06_defconfig or a06x_defconfig here, that's the one to use."
-          
+
       - name: Clone AnyKernel3 & SUSFS
         run: |
-           git clone https://github.com/osm0sis/AnyKernel3.git AnyKernel3
-           git clone -b gki-android13-5.15 https://gitlab.com/simonpunk/susfs4ksu.git susfs
+          git clone https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+          git clone -b gki-android13-5.15 https://gitlab.com/simonpunk/susfs4ksu.git susfs
 
       - name: Apply KernelSU Next
         run: |
-         cd kernel
-         curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -
+          cd kernel
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -
 
-
-     - name: Apply SUSFS Patch (android13-5.15)
+      - name: Apply SUSFS Patch (android13-5.15)
         run: |
-         cd kernel
-         patch -p1 < ../susfs/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch || true
-         cp -r ../susfs/kernel_patches/fs/* fs/ || true
-         cp -r ../susfs/kernel_patches/include/linux/* include/linux/ || true
-    
+          cd kernel
+          patch -p1 < ../susfs/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch || true
+          cp -r ../susfs/kernel_patches/fs/* fs/ || true
+          cp -r ../susfs/kernel_patches/include/linux/* include/linux/ || true
+
       - name: Build Kernel
-  run: |
-    cd kernel
-    # Fix quyền cho các script
-    chmod +x -R ./scripts
+        run: |
+          cd kernel
+          chmod +x -R ./scripts
 
-    # Tạo defconfig cho A06
-    make O=out ARCH=arm64 a06x_00_defconfig
+          # Tìm defconfig hợp lệ
+          if [ -f "arch/arm64/configs/a06x_defconfig" ]; then
+            DEFCONFIG=a06x_defconfig
+          elif [ -f "arch/arm64/configs/a06_defconfig" ]; then
+            DEFCONFIG=a06_defconfig
+          else
+            echo "❌ Không tìm thấy defconfig cho A06!"
+            exit 1
+          fi
+          echo "✅ Sử dụng defconfig: $DEFCONFIG"
 
-    # Biên dịch kernel
-    make -j$(nproc --all) O=out ARCH=arm64 \
-      CC=clang CROSS_COMPILE=aarch64-linux-android- LD=ld.lld
+          # Tạo defconfig
+          make O=out ARCH=arm64 $DEFCONFIG
+
+          # Biên dịch kernel với clang/llvm
+          make -j$(nproc --all) O=out ARCH=arm64 \
+            CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld
+
+      - name: Check Kernel Version
+        run: |
+          echo "🔍 Kiểm tra version trong Image:"
+          strings kernel/out/arch/arm64/boot/Image | grep "Linux version" || true
 
       - name: Pack AnyKernel3 zip
         run: |
@@ -70,11 +84,10 @@ jobs:
           cd AnyKernel3
           zip -r ../Kernel-A06-KSU-SUSFS.zip ./*
 
-      - name: Upload artifact
+      - name: Upload artifacts (Image + AnyKernel3 + dtb/dtbo)
         uses: actions/upload-artifact@v4
         with:
           name: Kernel-A06-KSU-SUSFS
           path: |
             *.zip
-            kernel/out/arch/arm64/boot/Image
-            
+            kernel/out/arch/arm64/boot/*
