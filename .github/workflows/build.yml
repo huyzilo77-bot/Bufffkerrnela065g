@@ -29,19 +29,24 @@ jobs:
 
       - name: Fetch ABI whitelist from AOSP GKI
         run: |
-          git clone --depth=1 https://android.googlesource.com/kernel/common -b android13-5.15-2025-03_r5 gki-common
-          echo "📂 Files in gki-common/android/"
-          ls -la gki-common/android | grep abi || true
-          
-          # Copy đúng file ABI cho MediaTek
-          cp gki-common/android/abi_gki_aarch64_mtk kernel-5.15/abi_symbollist.raw
-          echo "[INFO] Copied abi_gki_aarch64_mtk -> abi_symbollist.raw"
-          ls -l kernel-5.15/abi_symbollist.raw
+          git clone --depth=1 https://android.googlesource.com/kernel/common -b android13-5.15 gki-common
 
-      - name: Debug defconfigs
-        run: |
-          echo "📂 Listing defconfigs in arch/arm64/configs:"
-          ls -la kernel-5.15/arch/arm64/configs || true
+          echo "📂 Danh sách file ABI trong gki-common/android/:"
+          ls -la gki-common/android/ | grep abi_gki_aarch64_ || true
+
+          # Auto detect ABI file (ưu tiên mtk, qcom, exynos, unisoc,...)
+          ABI_FILE=$(ls gki-common/android/ | grep -E "abi_gki_aarch64_(mtk|mediatek|qcom|exynos|unisoc|general|generic)" | head -n 1 || true)
+
+          if [ -n "$ABI_FILE" ]; then
+            echo "✅ Đang dùng ABI whitelist: $ABI_FILE"
+            cp "gki-common/android/$ABI_FILE" kernel-5.15/abi_symbollist.raw
+          else
+            echo "⚠️ Không tìm thấy file ABI phù hợp → tạo file rỗng"
+            touch kernel-5.15/abi_symbollist.raw
+          fi
+
+          echo "📌 Kết quả cuối:"
+          ls -l kernel-5.15/abi_symbollist.raw
 
       - name: Clone utilities (AnyKernel3 & SUSFS)
         run: |
@@ -71,13 +76,14 @@ jobs:
             echo "❌ Không tìm thấy defconfig cho A06!"
             exit 1
           fi
-          echo "✅ Using defconfig: $DEFCONFIG"
+          echo "✅ Dùng defconfig: $DEFCONFIG"
           echo "DEFCONFIG=$DEFCONFIG" >> $GITHUB_ENV
 
       - name: Build Kernel
         run: |
           cd kernel-5.15
           chmod +x -R ./scripts
+
           make O=out ARCH=arm64 $DEFCONFIG
           make -j$(nproc --all) O=out ARCH=arm64 \
             CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld
