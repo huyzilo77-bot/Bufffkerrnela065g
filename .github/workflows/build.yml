@@ -56,52 +56,62 @@ jobs:
         run: |
           cd kernel-5.15
 
+          # Select defconfig for A06
           if [ -f arch/arm64/configs/a06x_defconfig ]; then
             DEFCONFIG=a06x_defconfig
           elif [ -f arch/arm64/configs/a06_defconfig ]; then
             DEFCONFIG=a06_defconfig
           else
-            echo "❌ Không tìm thấy defconfig cho A06!"
+            echo "No defconfig for A06!"
             exit 1
           fi
           echo "DEFCONFIG=$DEFCONFIG" >> $GITHUB_ENV
 
+          # Fetch ABI whitelist (Android 13 - 5.15)
           cd ..
           git clone --depth=1 https://android.googlesource.com/kernel/common -b android13-5.15 gki-common
           cd kernel-5.15
 
           ABI_FILE=$(ls ../gki-common/android/ | grep "abi_gki_aarch64_mtk" | head -n1 || true)
           if [ -n "$ABI_FILE" ]; then
-            echo "✅ Dùng ABI whitelist MTK: $ABI_FILE"
             cp ../gki-common/android/$ABI_FILE abi_symbollist.raw
           else
-            echo "⚠️ Không tìm thấy ABI cho MTK → thử generic"
             ABI_FILE=$(ls ../gki-common/android/ | grep "abi_gki_aarch64_generic" | head -n1 || true)
             if [ -n "$ABI_FILE" ]; then
-              echo "✅ Dùng ABI whitelist generic: $ABI_FILE"
               cp ../gki-common/android/$ABI_FILE abi_symbollist.raw
             else
-              echo "❌ Không tìm thấy file ABI phù hợp → tạo file rỗng"
               touch abi_symbollist.raw
             fi
           fi
 
+          # Copy ABI to common places the kernel looks at
           mkdir -p abi out out/abi out/android/abi out/obj/KERNEL_OBJ/kernel-5.15
-          cp abi_symbollist.raw abi/abi_symbollist.raw
-          cp abi_symbollist.raw out/abi/abi_symbollist.raw
-          cp abi_symbollist.raw out/android/abi/abi_symbollist.raw
-          cp abi_symbollist.raw out/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
+          cp -f abi_symbollist.raw abi/abi_symbollist.raw
+          cp -f abi_symbollist.raw out/abi/abi_symbollist.raw
+          cp -f abi_symbollist.raw out/android/abi/abi_symbollist.raw
+          cp -f abi_symbollist.raw out/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
 
-          echo "📌 ABI whitelist đã copy:"
-          find . -name "abi_symbollist.raw" -ls || true
+          # --- NEW: simulate vendor absolute path expected by Samsung/MTK ---
+          VENDOR_ABI_DIR="/home/dpi/qb5_bb14/workspace/P4_1716/android/out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15"
+          sudo mkdir -p "$VENDOR_ABI_DIR"
+          # prefer symlink; if not allowed, copy:
+          sudo ln -sf "$(pwd)/abi_symbollist.raw" "$VENDOR_ABI_DIR/abi_symbollist.raw" || \
+          sudo cp -f abi_symbollist.raw "$VENDOR_ABI_DIR/abi_symbollist.raw"
 
+          echo "=== ABI files present ==="
+          (find . -name abi_symbollist.raw -ls || true)
+          (ls -l "$VENDOR_ABI_DIR/abi_symbollist.raw" || true)
+
+          # Build + log
           chmod +x -R ./scripts
-          make O=out ARCH=arm64 $DEFCONFIG
+          make O=out ARCH=arm64 "$DEFCONFIG"
           yes "" | make O=out ARCH=arm64 olddefconfig
-          make -j$(nproc --all) O=out ARCH=arm64 \
+          make -j"$(nproc --all)" O=out ARCH=arm64 \
             CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld 2>&1 | tee build.log
 
+      # Only pack if build succeeded (avoid "Image* not found" error)
       - name: Pack & Upload Kernel
+        if: ${{ success() }}
         run: |
           IMG=$(ls kernel-5.15/out/arch/arm64/boot/Image* | head -n1)
           cp "$IMG" AnyKernel3/Image
@@ -109,7 +119,6 @@ jobs:
           (cd kernel-5.15/out/arch/arm64/boot && cp -r dtbo* ../../../../AnyKernel3/ || true)
           cd AnyKernel3
           zip -r ../Kernel-A06-KSU-SUSFS.zip ./*
-
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
