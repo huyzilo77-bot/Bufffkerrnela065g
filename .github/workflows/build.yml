@@ -100,23 +100,30 @@ jobs:
     echo "📌 ABI whitelist đã copy:"
     find . -name "abi_symbollist.raw" -ls || true
 
-    # 🔹 Build kernel + log
-    chmod +x -R ./scripts
-    make O=out ARCH=arm64 $DEFCONFIG
-    yes "" | make O=out ARCH=arm64 olddefconfig
-    make -j$(nproc --all) O=out ARCH=arm64 \
-      CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld 2>&1 | tee ../build.log
+    - name: Build kernel + log
+        run: |
+          cd kernel-5.15
+          chmod +x -R ./scripts
 
-- name: Pack & Upload Kernel
-  run: |
-    IMG=$(ls kernel-5.15/out/arch/arm64/boot/Image* | head -n1)
-    cp "$IMG" AnyKernel3/Image
-    (cd kernel-5.15/out/arch/arm64/boot && cp -r dtb* ../../../../AnyKernel3/ || true)
-    (cd kernel-5.15/out/arch/arm64/boot && cp -r dtbo* ../../../../AnyKernel3/ || true)
-    cd AnyKernel3
-    zip -r ../Kernel-A06-KSU-SUSFS.zip ./*
+          # Tạo config từ defconfig
+          make O=out ARCH=arm64 $DEFCONFIG
+          yes "" | make O=out ARCH=arm64 olddefconfig
 
-- name: Upload artifacts (config + zip + image + log)
+          # Build kernel và log ra file build.log
+          bash -c "make -j\$(nproc --all) O=out ARCH=arm64 \
+            CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld \
+            2>&1 | tee build.log"
+
+      - name: Pack & Upload Kernel
+        run: |
+          IMG=$(ls kernel-5.15/out/arch/arm64/boot/Image* | head -n1)
+          cp "$IMG" AnyKernel3/Image
+          (cd kernel-5.15/out/arch/arm64/boot && cp -r dtb* ../../../../AnyKernel3/ || true)
+          (cd kernel-5.15/out/arch/arm64/boot && cp -r dtbo* ../../../../AnyKernel3/ || true)
+          cd AnyKernel3
+          zip -r ../Kernel-A06-KSU-SUSFS.zip ./*
+
+      - name: Upload artifacts (config + zip + image + log)
         if: always()   # luôn upload kể cả khi build fail
         uses: actions/upload-artifact@v4
         with:
