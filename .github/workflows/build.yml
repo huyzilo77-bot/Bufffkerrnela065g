@@ -51,7 +51,7 @@ jobs:
           find drivers -name "Kconfig*" -type f -print0 | xargs -0 sed -i "s/’/'/g; s/‘/'/g"
           sed -i 's/^[[:space:]]*#/#/' drivers/power/supply/Kconfig || true
 
-      - name: Select defconfig + Fetch ABI + Disable ABI check + Build Kernel
+            - name: Select defconfig + Fetch ABI + Disable ABI + Build Kernel
         shell: bash
         run: |
           set -euo pipefail
@@ -97,8 +97,14 @@ jobs:
           mkdir -p out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15
           cp abi_symbollist.raw out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
 
+          # ✅ Giả lập path hard-code Samsung/MTK
+          FAKE_PATH="/home/dpi/qb5_8814/workspace/P4_1716/android/out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15"
+          sudo mkdir -p "$FAKE_PATH"
+          sudo cp abi_symbollist.raw "$FAKE_PATH/abi_symbollist.raw"
+
           # 🔹 Disable ABI check (fallback)
           sed -i 's/^CONFIG_ANDROID_ABI_SYMBOLS.*/# CONFIG_ANDROID_ABI_SYMBOLS is not set/' arch/arm64/configs/*defconfig || true
+          sed -i 's|include/generated/autoksyms.h|/dev/null|g' Makefile || true
           sed -i 's/abi_symbollist.raw/\/dev\/null/g' Makefile || true
           sed -i 's/abi_symbollist/\/dev\/null/g' Makefile || true
 
@@ -112,6 +118,7 @@ jobs:
           ( make -j"$(nproc --all)" O=out ARCH=arm64 \
               CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld 2>&1 | tee build.log ) \
               || exit ${PIPESTATUS[0]}
+
 
       - name: Pack AnyKernel3 zip
         run: |
