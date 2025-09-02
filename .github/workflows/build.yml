@@ -82,15 +82,20 @@ jobs:
           cd kernel-5.15
           chmod +x -R ./scripts
 
+          # Tạo file config
           make O=out ARCH=arm64 ${{ env.DEFCONFIG }}
           yes "" | make O=out ARCH=arm64 olddefconfig
 
-          # ✅ Copy ABI sau khi defconfig
+          # ✅ Copy ABI symbollist vào đúng chỗ
           mkdir -p out/obj/KERNEL_OBJ/kernel-5.15
+          if [ ! -f abi_symbollist.raw ]; then
+            echo "⚠️ Tạo file abi_symbollist.raw rỗng"
+            touch abi_symbollist.raw
+          fi
           cp abi_symbollist.raw out/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
           ls -l out/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
 
-          # ✅ Build kernel
+          # Build kernel
           make -j$(nproc --all) O=out ARCH=arm64 \
             CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld
 
