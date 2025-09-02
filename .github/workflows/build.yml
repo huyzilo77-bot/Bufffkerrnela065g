@@ -16,7 +16,17 @@ jobs:
           sudo apt-get install -y \
             git wget curl build-essential bc bison flex \
             libssl-dev libncurses5-dev libelf-dev ccache unzip zip jq
-
+            
+         - name: Debug environment
+        run: |
+          echo "📂 Current Path: $(pwd)"
+          echo "📂 Repo Files:"
+          ls -R . || true
+          echo "📂 Configs folder:"
+          ls -R .github/configs || true
+          echo "ENV Variables:"
+          env
+          
       - name: Clone kernel source
         run: |
           git clone --depth=1 -b main https://github.com/huyzilo77-bot/Samsung-A06-Kernel.git kernel
