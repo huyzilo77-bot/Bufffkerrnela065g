@@ -57,10 +57,17 @@ jobs:
           echo "CONFIG_KSU_SUSFS=y" >> arch/arm64/configs/a06x_defconfig
 
       - name: Build Kernel
-        run: |
-          cd kernel
-          make O=out ARCH=arm64 a06x_defconfig
-          make -j$(nproc) O=out ARCH=arm64 CC=clang
+  run: |
+    cd kernel
+    # Fix quyền cho các script
+    chmod +x -R ./scripts
+
+    # Tạo defconfig cho A06
+    make O=out ARCH=arm64 a06x_00_defconfig
+
+    # Biên dịch kernel
+    make -j$(nproc --all) O=out ARCH=arm64 \
+      CC=clang CROSS_COMPILE=aarch64-linux-android- LD=ld.lld
 
       - name: Pack AnyKernel3 zip
         run: |
