@@ -26,9 +26,6 @@ jobs:
         run: |
           mkdir kernel
           tar -xf kernel.tar -C kernel --strip-components=1
-      - name: Extract Kernel Source
-        run: |
-          mkdir kernel && tar -xf kernel.tar -C kernel --strip-components=1
 
       - name: Debug defconfig files
         run: |
