@@ -106,26 +106,4 @@ jobs:
           name: Kernel-A06-KSU-SUSFS
           path: |
             *.zip
-            kernel-5.15/out/arch/arm64/boot/Image*          cd kernel-5.15
-          make O=out ARCH=arm64 $DEFCONFIG
-          make -j$(nproc) O=out ARCH=arm64 \
-            CC=clang LD=ld.lld CROSS_COMPILE=aarch64-linux-gnu-
-
-      # 12. Pack AnyKernel3
-      - name: Pack AnyKernel3 zip
-        run: |
-          OUTDIR=kernel-5.15/out/arch/arm64/boot
-          cp $OUTDIR/Image* AnyKernel3/ || true
-          cp $OUTDIR/dtb* AnyKernel3/ || true
-          cp $OUTDIR/dtbo* AnyKernel3/ || true
-          cd AnyKernel3
-          zip -r9 ../Kernel-A06-KSU-SUSFS.zip ./*
-
-      # 13. Upload artifacts
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: Kernel-A06-KSU-SUSFS
-          path: |
-            Kernel-A06-KSU-SUSFS.zip
             kernel-5.15/out/arch/arm64/boot/Image*
