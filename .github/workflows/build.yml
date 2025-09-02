@@ -16,37 +16,30 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y git wget build-essential bc bison flex \
-            libssl-dev libelf-dev ccache unzip python3 clang llvm lld
+            libssl-dev libelf-dev ccache unzip python3 clang llvm lld dos2unix
 
       - name: Download Kernel Source (Release)
         run: |
-          wget -O kernel.tar "https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/kernel-5.15.tar"
-
-      - name: Extract Kernel Source
-        run: |
+          wget -O kernel.tar "https://github.com/huyzilo77-bot/Bufffkernela065g/releases/download/V1/kernel-5.15.tar"
           mkdir kernel-5.15
           tar -xf kernel.tar -C kernel-5.15 --strip-components=1
 
       - name: Fetch ABI whitelist from AOSP GKI
         run: |
           git clone --depth=1 https://android.googlesource.com/kernel/common -b android13-5.15 gki-common
+          echo "📂 Files in gki-common/android/"
+          ls -la gki-common/android/ | grep abi_gki_aarch64 || true
 
-          echo "📂 Danh sách file ABI trong gki-common/android/:"
-          ls -la gki-common/android/ | grep abi_gki_aarch64_ || true
-
-          # Auto detect ABI file (ưu tiên mtk, qcom, exynos, unisoc,...)
-          ABI_FILE=$(ls gki-common/android/ | grep -E "abi_gki_aarch64_(mtk|mediatek|qcom|exynos|unisoc|general|generic)" | head -n 1 || true)
-
-          if [ -n "$ABI_FILE" ]; then
-            echo "✅ Đang dùng ABI whitelist: $ABI_FILE"
-            cp "gki-common/android/$ABI_FILE" kernel-5.15/abi_symbollist.raw
-          else
-            echo "⚠️ Không tìm thấy file ABI phù hợp → tạo file rỗng"
+          # Tự động chọn file ABI phù hợp
+          ABI_FILE=$(ls gki-common/android/abi_gki_aarch64_mtk || ls gki-common/android/abi_gki_aarch64_general || echo "")
+          if [ -z "$ABI_FILE" ]; then
+            echo "⚠️ Không tìm thấy file ABI, tạo file trống"
             touch kernel-5.15/abi_symbollist.raw
+          else
+            cp "$ABI_FILE" kernel-5.15/abi_symbollist.raw
+            echo "✅ Copied ABI file: $ABI_FILE"
           fi
-
-          echo "📌 Kết quả cuối:"
-          ls -l kernel-5.15/abi_symbollist.raw
+          ls -l kernel-5.15/abi_symbollist.raw || true
 
       - name: Clone utilities (AnyKernel3 & SUSFS)
         run: |
@@ -65,12 +58,20 @@ jobs:
           cp -r ../susfs/kernel_patches/fs/* fs/ || true
           cp -r ../susfs/kernel_patches/include/linux/* include/linux/ || true
 
+      - name: Fix Kconfig encoding
+        run: |
+          cd kernel-5.15
+          find drivers -name "Kconfig" -exec dos2unix {} \;
+          sed -i "s/’/'/g" drivers/input/sar/sx937x/Kconfig || true
+          sed -i "s/’/'/g" drivers/input/sar/stk501xx/Kconfig || true
+          sed -i 's/^[ \t]*//' drivers/power/supply/Kconfig || true
+
       - name: Select defconfig
         run: |
           cd kernel-5.15
-          if [ -f arch/arm64/configs/a06x_defconfig ]; then
+          if [ -f "arch/arm64/configs/a06x_defconfig" ]; then
             DEFCONFIG=a06x_defconfig
-          elif [ -f arch/arm64/configs/a06_defconfig ]; then
+          elif [ -f "arch/arm64/configs/a06_defconfig" ]; then
             DEFCONFIG=a06_defconfig
           else
             echo "❌ Không tìm thấy defconfig cho A06!"
@@ -83,7 +84,6 @@ jobs:
         run: |
           cd kernel-5.15
           chmod +x -R ./scripts
-
           make O=out ARCH=arm64 $DEFCONFIG
           make -j$(nproc --all) O=out ARCH=arm64 \
             CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld
@@ -91,8 +91,6 @@ jobs:
       - name: Pack AnyKernel3 zip
         run: |
           cp kernel-5.15/out/arch/arm64/boot/Image AnyKernel3/Image
-          (cd kernel-5.15/out/arch/arm64/boot && cp -r dtb* ../../../../AnyKernel3/ || true)
-          (cd kernel-5.15/out/arch/arm64/boot && cp -r dtbo* ../../../../AnyKernel3/ || true)
           cd AnyKernel3
           zip -r ../Kernel-A06-KSU-SUSFS.zip ./*
 
