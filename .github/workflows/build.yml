@@ -30,11 +30,19 @@ jobs:
       - name: Ensure abi_symbollist.raw exists
         run: |
           cd kernel-5.15
+          # Root
           echo "" > abi_symbollist.raw
+          # Out folder
           mkdir -p out
           echo "" > out/abi_symbollist.raw
-          echo "[INFO] Created abi_symbollist.raw in root and out/"
-          ls -l abi_symbollist.raw out/abi_symbollist.raw
+          # Android KERNEL_OBJ path
+          mkdir -p ../out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15
+          echo "" > ../out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
+
+          echo "[INFO] Created abi_symbollist.raw in:"
+          ls -l abi_symbollist.raw
+          ls -l out/abi_symbollist.raw
+          ls -l ../out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
 
       - name: Debug defconfig files
         run: |
