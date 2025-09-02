@@ -1,63 +1,37 @@
-name: Build Samsung A06 Kernel (KSU Next + SUSFS)
+name: Debug JSON Config
 
 on:
   workflow_dispatch:
 
 jobs:
-  build:
-    runs-on: ubuntu-22.04
+  debug:
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
         uses: actions/checkout@v3
 
-      - name: Debug repo structure
+      - name: Show repo structure
         run: |
           echo "📂 Current Path: $(pwd)"
           echo "📂 Repo files:"
-          ls -R . || true
+          ls -R || true
           echo "📂 Check configs folder:"
           ls -R .github/configs || true
 
-      - name: Install dependencies
+      - name: Show a06.json content
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            git wget curl build-essential bc bison flex \
-            libssl-dev libncurses5-dev libelf-dev ccache unzip zip jq
-
-      - name: Parse config JSON
-  id: parse
-  run: |
-    CONFIG_FILE=".github/configs/a06.json"
-    if [ ! -f "$CONFIG_FILE" ]; then
-      echo "❌ Config file $CONFIG_FILE not found!"
-      exit 1
-    fi
-
-    echo "===== FILE CONTENT ====="
-    cat "$CONFIG_FILE"
-    echo "===== END CONTENT ====="
-
-    echo "Running jq validation..."
-    jq . "$CONFIG_FILE" || exit 1
-
-    KERNEL_REPO=$(jq -r '.repos[0].kernelSource.repo' $CONFIG_FILE)
-    KERNEL_BRANCH=$(jq -r '.repos[0].kernelSource.branch' $CONFIG_FILE)
-    DEFCONFIG=$(jq -r '.repos[0].kernelSource.defconfig' $CONFIG_FILE)
-
-      - name: Clone kernel source
-        run: |
-          echo "Cloning $KERNEL_REPO branch $KERNEL_BRANCH"
-          git clone --depth=1 -b $KERNEL_BRANCH $KERNEL_REPO kernel || exit 1
-          ls -la kernel
-
-      - name: Test defconfig
-        run: |
-          cd kernel
-          if [ -f Makefile ]; then
-            echo "✅ Kernel source ok, running defconfig..."
-            make ARCH=arm64 $DEFCONFIG || true
-          else
-            echo "❌ Kernel source invalid (Makefile missing)"
+          CONFIG_FILE=".github/configs/a06.json"
+          if [ ! -f "$CONFIG_FILE" ]; then
+            echo "❌ Config file not found: $CONFIG_FILE"
             exit 1
           fi
+          echo "===== FILE CONTENT ====="
+          cat "$CONFIG_FILE"
+          echo "===== END CONTENT ====="
+
+      - name: Validate JSON with jq
+        run: |
+          CONFIG_FILE=".github/configs/a06.json"
+          echo "🔍 Validating JSON..."
+          jq . "$CONFIG_FILE"
+          echo "✅ JSON is valid!"
