@@ -6,50 +6,52 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
+
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v3
+    - name: Checkout repo
+      uses: actions/checkout@v4
 
-      - name: Show repo structure
-        run: |
-          echo "📂 Current Path: $(pwd)"
-          ls -R || true
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          git build-essential bc bison flex \
+          libssl-dev libncurses5-dev libelf-dev \
+          ccache unzip zip curl wget python3 jq \
+          openjdk-17-jdk
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y git device-tree-compiler lz4 xz-utils \
-            zlib1g-dev openjdk-17-jdk gcc g++ python3 python3-pip \
-            p7zip-full android-sdk-libsparse-utils erofs-utils \
-            flex bison gperf build-essential curl libssl-dev \
-            libncurses5-dev libncursesw5-dev libelf-dev ccache unzip jq
+    - name: Clone kernel source
+      run: |
+        git clone --depth=1 -b main \
+          https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/huyzilo77-bot/Samsung-A06-5g-Kernel-5.15.151.git kernel
 
-      - name: Clone kernel source
-  run: |
-    git clone --depth=1 -b main https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/huyzilo77-bot/Samsung-A06-5g-Kernel-5.15.151.git kernel
+    - name: Apply KernelSU Next + SUSFS
+      run: |
+        cd kernel
+        curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/main/setup.sh" | bash -
+        curl -LSs "https://gitlab.com/simonpunk/susfs4ksu/-/raw/gki-android13-5.15/susfs.patch" -o susfs.patch
+        git apply susfs.patch || true
 
-      - name: Apply KernelSU Next + SUSFS
-        run: |
-          cd kernel
-          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/main/setup.sh" | bash -
-          curl -LSs "https://gitlab.com/simonpunk/susfs4ksu/-/raw/gki-android13-5.15/susfs.patch" -o susfs.patch
-          git apply susfs.patch
+    - name: Build kernel
+      run: |
+        cd kernel
+        export ARCH=arm64
+        export SUBARCH=arm64
+        export KBUILD_BUILD_USER="github-actions"
+        export KBUILD_BUILD_HOST="ci"
+        make a06x_q0_defconfig
+        make -j$(nproc)
 
-      - name: Build kernel
-        run: |
-          cd kernel
-          make ARCH=arm64 a06x_q0_defconfig
-          make ARCH=arm64 -j$(nproc)
+    - name: Pack with AnyKernel3
+      run: |
+        git clone https://github.com/osm0sis/AnyKernel3.git
+        cd AnyKernel3
+        cp ../kernel/arch/arm64/boot/Image.gz-dtb ./ || true
+        cp ../kernel/arch/arm64/boot/dtb.img ./ || true
+        zip -r9 ../kernel_a06_ksu_susfs.zip ./*
 
-      - name: Pack with AnyKernel3
-        run: |
-          git clone https://github.com/osm0sis/AnyKernel3.git
-          cd AnyKernel3
-          cp -f ../kernel/arch/arm64/boot/Image ./zImage
-          zip -r9 ../A06-Kernel-KSU-SUSFS.zip ./*
-
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: A06-Kernel-KSU-SUSFS
-          path: A06-Kernel-KSU-SUSFS.zip
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: kernel_a06_ksu_susfs
+        path: kernel_a06_ksu_susfs.zip
