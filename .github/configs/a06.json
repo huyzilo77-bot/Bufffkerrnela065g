@@ -7,11 +7,12 @@
         "imageurl": ""
       },
       "kernelSource": {
-        "name": "Samsung-A06-5g-Kernel5.15.151",
-        "repo": "https://github.com/huyzilo77-bot/Samsung-A06-5g-Kernel5.15.151.git",
-        "branch": "main",
-        "device": "a06",
-        "defconfig": "a06x_00_defconfig"
+  "name": "Samsung-A06-Kernel",
+  "repo": "https://github.com/huyzilo77-bot/Samsung-A06-5g-Kernel5.15.151",
+  "branch": "main",
+  "device": "a06",
+  "defconfig": "a06x_00_defconfig"
+}
       },
       "kernelsu": {
         "enable": true,
