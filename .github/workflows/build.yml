@@ -16,8 +16,7 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y git build-essential bc bison flex \
-            libssl-dev libelf-dev ccache wget unzip python3 clang \
-            llvm lld
+            libssl-dev libelf-dev ccache wget unzip python3 clang llvm lld
 
       - name: Download Kernel Source (Release)
         run: |
@@ -32,6 +31,7 @@ jobs:
         run: |
           echo "📂 Listing defconfigs in arch/arm64/configs:"
           ls -la kernel/arch/arm64/configs || true
+          echo "✅ Nếu thấy a06_defconfig hoặc a06x_defconfig, đó là file cần dùng."
 
       - name: Clone AnyKernel3 & SUSFS
         run: |
@@ -51,30 +51,30 @@ jobs:
           cp -r ../susfs/kernel_patches/include/linux/* include/linux/ || true
 
       - name: Build Kernel
-  run: |
-    cd kernel
-    chmod +x -R ./scripts
+        run: |
+          cd kernel
+          chmod +x -R ./scripts
 
-    # Nếu thiếu file abi_symbollist.raw thì tạo file trống
-    [ ! -f abi_symbollist.raw ] && touch abi_symbollist.raw
+          # Nếu thiếu file abi_symbollist.raw thì tạo file trống
+          [ ! -f abi_symbollist.raw ] && touch abi_symbollist.raw
 
-    # Tìm defconfig hợp lệ
-    if [ -f "arch/arm64/configs/a06x_defconfig" ]; then
-      DEFCONFIG=a06x_defconfig
-    elif [ -f "arch/arm64/configs/a06_defconfig" ]; then
-      DEFCONFIG=a06_defconfig
-    else
-      echo "❌ Không tìm thấy defconfig cho A06!"
-      exit 1
-    fi
-    echo "✅ Sử dụng defconfig: $DEFCONFIG"
+          # Tìm defconfig hợp lệ
+          if [ -f "arch/arm64/configs/a06x_defconfig" ]; then
+            DEFCONFIG=a06x_defconfig
+          elif [ -f "arch/arm64/configs/a06_defconfig" ]; then
+            DEFCONFIG=a06_defconfig
+          else
+            echo "❌ Không tìm thấy defconfig cho A06!"
+            exit 1
+          fi
+          echo "✅ Sử dụng defconfig: $DEFCONFIG"
 
-    # Tạo defconfig
-    make O=out ARCH=arm64 $DEFCONFIG
+          # Tạo defconfig
+          make O=out ARCH=arm64 $DEFCONFIG
 
-    # Biên dịch kernel với clang/llvm
-    make -j$(nproc --all) O=out ARCH=arm64 \
-      CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld
+          # Biên dịch kernel với clang/llvm
+          make -j$(nproc --all) O=out ARCH=arm64 \
+            CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld
 
       - name: Check Kernel Version
         run: |
@@ -93,4 +93,4 @@ jobs:
           name: Kernel-A06-KSU-SUSFS
           path: |
             *.zip
-            kernel/out/arch/arm64/boot/*
+            kernel/out/arch/arm64/boot/Image
