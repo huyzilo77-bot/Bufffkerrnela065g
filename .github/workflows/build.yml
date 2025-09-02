@@ -48,11 +48,10 @@ jobs:
       - name: Fix Kconfig encoding
         run: |
           cd kernel-5.15
-          find drivers -name "Kconfig*" -type f -print0 | \
-            xargs -0 sed -i "s/’/'/g; s/‘/'/g"
+          find drivers -name "Kconfig*" -type f -exec sed -i 's/[^ -~]//g' {} +
           sed -i 's/^[[:space:]]*#/#/' drivers/power/supply/Kconfig || true
 
-      - name: Select defconfig + Fetch ABI + Fix Kconfig + Build Kernel
+      - name: Select defconfig + Fetch ABI + Build Kernel
         run: |
           cd kernel-5.15
 
@@ -72,68 +71,49 @@ jobs:
           git clone --depth=1 https://android.googlesource.com/kernel/common -b android13-5.15 gki-common
           cd kernel-5.15
 
-          ABI_FILE=$(ls ../gki-common/android/ | grep "abi_gki_aarch64_mtk" | head -n1 || true)
+          ABI_FILE=$(find ../gki-common/android/ -name "abi_gki_aarch64_mtk*" | head -n1 || true)
           if [ -n "$ABI_FILE" ]; then
             echo "✅ Dùng ABI whitelist MTK: $ABI_FILE"
-            cp ../gki-common/android/$ABI_FILE abi_symbollist.raw
+            cp "$ABI_FILE" abi_symbollist.raw
           else
             echo "⚠️ Không có ABI MTK → thử generic"
-            ABI_FILE=$(ls ../gki-common/android/ | grep "abi_gki_aarch64_generic" | head -n1 || true)
+            ABI_FILE=$(find ../gki-common/android/ -name "abi_gki_aarch64_generic*" | head -n1 || true)
             if [ -n "$ABI_FILE" ]; then
               echo "✅ Dùng ABI whitelist generic: $ABI_FILE"
-              cp ../gki-common/android/$ABI_FILE abi_symbollist.raw
+              cp "$ABI_FILE" abi_symbollist.raw
             else
               echo "❌ Không tìm thấy file ABI phù hợp → tạo file rỗng"
               touch abi_symbollist.raw
             fi
           fi
 
-          # 🔹 Copy ABI vào tất cả path kernel cần
-          mkdir -p abi out out/abi out/android/abi out/obj/KERNEL_OBJ/kernel-5.15
-          cp abi_symbollist.raw abi/abi_symbollist.raw
+          # 🔹 Copy ABI vào các đường dẫn cần thiết
+          mkdir -p out/abi out/android/abi
           cp abi_symbollist.raw out/abi/abi_symbollist.raw
           cp abi_symbollist.raw out/android/abi/abi_symbollist.raw
-          cp abi_symbollist.raw out/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
-          cp abi_symbollist.raw .abi_symbollist.raw
-
-          echo "📌 ABI whitelist đã copy:"
-          find . -name "abi_symbollist.raw" -ls || true
-          find . -name ".abi_symbollist.raw" -ls || true
-
-          # 🔹 Fix Kconfig encoding (xoá ký tự Unicode lỗi)
-          find drivers -name "Kconfig*" -type f -exec sed -i 's/[^ -~]//g' {} +
 
           # 🔹 Build kernel + log
           chmod +x -R ./scripts
           make O=out ARCH=arm64 $DEFCONFIG
           yes "" | make O=out ARCH=arm64 olddefconfig
-          make -j"$(nproc --all)" O=out ARCH=arm64 \
+          make -j$(nproc) O=out ARCH=arm64 \
             CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld 2>&1 | tee build.log
 
       - name: Pack & Upload Kernel
         if: success()
         run: |
-          # Lấy file Image hoặc Image.gz-dtb nếu có
-          IMG=$(ls kernel-5.15/out/arch/arm64/boot/Image* 2>/dev/null || true)
+          IMG_PATH=$(find kernel-5.15/out/arch/arm64/boot/ -maxdepth 1 -name "Image*" | head -n1 || true)
 
-          if [ -z "$IMG" ]; then
-            echo "❌ Không tìm thấy Image, thử Image.gz-dtb"
-            IMG=$(ls kernel-5.15/out/arch/arm64/boot/Image.gz-dtb* 2>/dev/null || true)
-          fi
-
-          if [ -z "$IMG" ]; then
-            echo "❌ Kernel không tạo ra Image!"
+          if [ -z "$IMG_PATH" ]; then
+            echo "❌ Kernel build failed! No Image or Image.gz-dtb found."
             exit 1
           fi
 
-          echo "✅ Đã tìm thấy kernel output: $IMG"
-          cp "$IMG" AnyKernel3/Image
+          cp "$IMG_PATH" AnyKernel3/Image
 
-          # Copy dtb, dtbo nếu có
           (cd kernel-5.15/out/arch/arm64/boot && cp -r dtb* ../../../../AnyKernel3/ || true)
           (cd kernel-5.15/out/arch/arm64/boot && cp -r dtbo* ../../../../AnyKernel3/ || true)
 
-          # Đóng gói zip
           cd AnyKernel3
           zip -r ../Kernel-A06-KSU-SUSFS.zip ./*
 
