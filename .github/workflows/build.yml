@@ -28,14 +28,17 @@ jobs:
           mkdir kernel-5.15
           tar -xf kernel.tar -C kernel-5.15 --strip-components=1
 
-      - name: Fetch ABI whitelist from AOSP GKI
+      - name: Fix ABI whitelist path
         run: |
-          git clone --depth=1 https://android.googlesource.com/kernel/common -b android13-5.15 gki-common
-          ABI_FILE=$(ls gki-common/android/ | grep -E "abi_gki_aarch64_" | head -n1 || true)
           cd kernel-5.15
-          if [ -n "$ABI_FILE" ]; then
-            echo "✅ Dùng ABI: $ABI_FILE"
-            cp ../gki-common/android/$ABI_FILE abi_symbollist.raw
+          mkdir -p out/abi
+          if [ ! -f abi_symbollist.raw ]; then
+            echo "⚠️ Tạo abi_symbollist.raw rỗng"
+            touch abi_symbollist.raw
+          fi
+          cp abi_symbollist.raw out/abi/abi_symbollist.raw
+          cp abi_symbollist.raw out/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw || true
+          find out -name "abi_symbollist.raw"
           else
             echo "⚠️ Không tìm thấy ABI → tạo file rỗng"
             touch abi_symbollist.raw
@@ -69,6 +72,14 @@ jobs:
           patch -p1 < ../susfs/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch || true
           cp -r ../susfs/kernel_patches/fs/* fs/ || true
           cp -r ../susfs/kernel_patches/include/linux/* include/linux/ || true
+      - name: Fix Kconfig encoding
+        run: |
+          cd kernel-5.15
+          # Thay ký tự lạ (Unicode quote) thành '
+          find drivers -name "Kconfig*" -type f -print0 | \
+            xargs -0 sed -i "s/’/'/g; s/‘/'/g"
+          # Xoá khoảng trắng đầu dòng trước '#'
+          sed -i 's/^[[:space:]]*#/#/' drivers/power/supply/Kconfig || true
 
       - name: Select defconfig
         run: |
