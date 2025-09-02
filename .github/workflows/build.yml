@@ -24,14 +24,13 @@ jobs:
 
       - name: Extract Kernel Source
         run: |
-          mkdir kernel
-          tar -xf kernel.tar -C kernel --strip-components=1
+          mkdir kernel-5.15
+          tar -xf kernel.tar -C kernel-5.15 --strip-components=1
 
       - name: Debug defconfig files
         run: |
           echo "📂 Listing defconfigs in arch/arm64/configs:"
-          ls -la kernel/arch/arm64/configs || true
-          echo "✅ Nếu thấy a06_defconfig hoặc a06x_defconfig, đó là file cần dùng."
+          ls -la kernel-5.15/arch/arm64/configs || true
 
       - name: Clone AnyKernel3 & SUSFS
         run: |
@@ -40,23 +39,29 @@ jobs:
 
       - name: Apply KernelSU Next
         run: |
-          cd kernel
+          cd kernel-5.15
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -
 
       - name: Apply SUSFS Patch (android13-5.15)
         run: |
-          cd kernel
+          cd kernel-5.15
           patch -p1 < ../susfs/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch || true
           cp -r ../susfs/kernel_patches/fs/* fs/ || true
           cp -r ../susfs/kernel_patches/include/linux/* include/linux/ || true
 
+      - name: Ensure abi_symbollist.raw exists
+        run: |
+          cd kernel-5.15
+          if [ ! -f abi_symbollist.raw ]; then
+            echo "" > abi_symbollist.raw
+            echo "[INFO] Created empty abi_symbollist.raw at $(pwd)"
+          fi
+          ls -l abi_symbollist.raw
+
       - name: Build Kernel
         run: |
-          cd kernel
+          cd kernel-5.15
           chmod +x -R ./scripts
-
-          # Nếu thiếu file abi_symbollist.raw thì tạo file trống
-          [ ! -f abi_symbollist.raw ] && touch abi_symbollist.raw
 
           # Tìm defconfig hợp lệ
           if [ -f "arch/arm64/configs/a06x_defconfig" ]; then
@@ -79,11 +84,22 @@ jobs:
       - name: Check Kernel Version
         run: |
           echo "🔍 Kiểm tra version trong Image:"
-          strings kernel/out/arch/arm64/boot/Image | grep "Linux version" || true
+          strings kernel-5.15/out/arch/arm64/boot/Image | grep "Linux version" || true
 
       - name: Pack AnyKernel3 zip
         run: |
-          cp kernel/out/arch/arm64/boot/Image AnyKernel3/Image
+          # Copy kernel Image
+          cp kernel-5.15/out/arch/arm64/boot/Image AnyKernel3/Image
+
+          # Copy dtb/dtbo nếu có
+          if [ -f kernel-5.15/out/arch/arm64/boot/dtb ]; then
+            cp kernel-5.15/out/arch/arm64/boot/dtb AnyKernel3/dtb
+          fi
+          if [ -f kernel-5.15/out/arch/arm64/boot/dtbo.img ]; then
+            cp kernel-5.15/out/arch/arm64/boot/dtbo.img AnyKernel3/dtbo.img
+          fi
+
+          # Đóng gói zip
           cd AnyKernel3
           zip -r ../Kernel-A06-KSU-SUSFS.zip ./*
 
@@ -93,4 +109,6 @@ jobs:
           name: Kernel-A06-KSU-SUSFS
           path: |
             *.zip
-            kernel/out/arch/arm64/boot/Image
+            kernel-5.15/out/arch/arm64/boot/Image
+            kernel-5.15/out/arch/arm64/boot/dtb
+            kernel-5.15/out/arch/arm64/boot/dtbo.img
