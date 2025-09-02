@@ -92,7 +92,6 @@ jobs:
     # 🔹 Copy ABI vào tất cả path kernel cần
     mkdir -p abi out out/abi out/android/abi out/obj/KERNEL_OBJ/kernel-5.15
     cp abi_symbollist.raw abi/abi_symbollist.raw
-    cp abi_symbollist.raw out/abi_symbollist.raw
     cp abi_symbollist.raw out/abi/abi_symbollist.raw
     cp abi_symbollist.raw out/android/abi/abi_symbollist.raw
     cp abi_symbollist.raw out/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
@@ -100,36 +99,29 @@ jobs:
     echo "📌 ABI whitelist đã copy:"
     find . -name "abi_symbollist.raw" -ls || true
 
-    - name: Build kernel + log
-        run: |
-          cd kernel-5.15
-          chmod +x -R ./scripts
+    # 🔹 Build kernel + log
+    chmod +x -R ./scripts
+    make O=out ARCH=arm64 $DEFCONFIG
+    yes "" | make O=out ARCH=arm64 olddefconfig
+    make -j$(nproc --all) O=out ARCH=arm64 \
+      CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld 2>&1 | tee build.log
 
-          # Tạo config từ defconfig
-          make O=out ARCH=arm64 $DEFCONFIG
-          yes "" | make O=out ARCH=arm64 olddefconfig
+- name: Pack & Upload Kernel
+  run: |
+    IMG=$(ls kernel-5.15/out/arch/arm64/boot/Image* | head -n1)
+    cp "$IMG" AnyKernel3/Image
+    (cd kernel-5.15/out/arch/arm64/boot && cp -r dtb* ../../../../AnyKernel3/ || true)
+    (cd kernel-5.15/out/arch/arm64/boot && cp -r dtbo* ../../../../AnyKernel3/ || true)
+    cd AnyKernel3
+    zip -r ../Kernel-A06-KSU-SUSFS.zip ./*
 
-          # Build kernel và log ra file build.log
-          bash -c "make -j\$(nproc --all) O=out ARCH=arm64 \
-            CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld \
-            2>&1 | tee build.log"
-
-      - name: Pack & Upload Kernel
-        run: |
-          IMG=$(ls kernel-5.15/out/arch/arm64/boot/Image* | head -n1)
-          cp "$IMG" AnyKernel3/Image
-          (cd kernel-5.15/out/arch/arm64/boot && cp -r dtb* ../../../../AnyKernel3/ || true)
-          (cd kernel-5.15/out/arch/arm64/boot && cp -r dtbo* ../../../../AnyKernel3/ || true)
-          cd AnyKernel3
-          zip -r ../Kernel-A06-KSU-SUSFS.zip ./*
-
-      - name: Upload artifacts (config + zip + image + log)
-        if: always()   # luôn upload kể cả khi build fail
-        uses: actions/upload-artifact@v4
-        with:
-          name: Kernel-Outputs
-          path: |
-            kernel-5.15/out/.config
-            kernel-5.15/out/arch/arm64/boot/Image*
-            Kernel-A06-KSU-SUSFS.zip
-            kernel-5.15/build.log
+- name: Upload artifacts (config + zip + image + log)
+  if: always()
+  uses: actions/upload-artifact@v4
+  with:
+    name: Kernel-Outputs
+    path: |
+      kernel-5.15/out/.config
+      kernel-5.15/out/arch/arm64/boot/Image*
+      Kernel-A06-KSU-SUSFS.zip
+      kernel-5.15/build.log
