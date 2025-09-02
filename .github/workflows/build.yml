@@ -1,4 +1,4 @@
-name: Build Kernel GKI2.0
+name: Build Samsung A06 Kernel (KSU Next + SUSFS)
 
 on:
   workflow_dispatch:
@@ -6,68 +6,65 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
-
     steps:
-      - name: Checkout
+      - name: Checkout repo
         uses: actions/checkout@v3
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.x'
 
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            git build-essential bc curl wget \
-            flex bison libssl-dev libelf-dev \
-            python3 python3-pip ccache unzip zip tar xz-utils
-
-      - name: Parse config
-        id: cfg
-        run: |
-          CONFIG_FILE=".github/configs/a06.json"
-          echo "KERNEL_REPO=$(jq -r '.kernelSource.repo' $CONFIG_FILE)" >> $GITHUB_ENV
-          echo "KERNEL_BRANCH=$(jq -r '.kernelSource.branch' $CONFIG_FILE)" >> $GITHUB_ENV
-          echo "DEFCONFIG=$(jq -r '.kernelSource.defconfig' $CONFIG_FILE)" >> $GITHUB_ENV
-          echo "DEVICE=$(jq -r '.kernelSource.device' $CONFIG_FILE)" >> $GITHUB_ENV
-          echo "KSUNEXT=$(jq -r '.kernelsu.setupLink' $CONFIG_FILE)" >> $GITHUB_ENV
-          echo "SUSFSLINK=$(jq -r '.kernelsu.susfsLink' $CONFIG_FILE)" >> $GITHUB_ENV
+            git wget curl build-essential bc bison flex \
+            libssl-dev libncurses5-dev libelf-dev ccache unzip zip jq
 
       - name: Clone kernel source
         run: |
-          git clone --depth=1 -b $KERNEL_BRANCH $KERNEL_REPO kernel
+          git clone --depth=1 -b main https://github.com/huyzilo77-bot/Samsung-A06-Kernel.git kernel
           cd kernel
-          echo "Kernel commit: $(git rev-parse HEAD)"
+          echo "Kernel HEAD: $(git rev-parse HEAD)"
 
-      - name: Apply KernelSU Next + SUSFS
+      - name: Add KernelSU Next
         run: |
           cd kernel
-          curl -LSs $KSUNEXT | bash -s .
-          curl -L $SUSFSLINK -o susfs.patch
-          patch -p1 < susfs.patch || true
+          curl -LSs https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh | bash -
+
+      - name: Apply SUSFS patches
+        run: |
+          git clone -b gki-android13-5.15 https://gitlab.com/simonpunk/susfs4ksu.git susfs4ksu
+          cd kernel
+
+          # Copy patch chính
+          cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch ./common/
+          cd common
+          patch -p1 --forward < 50_add_susfs_in_gki-android13-5.15.patch || true
+          cd ..
+
+          # Copy thư mục fs và include
+          cp -r ../susfs4ksu/kernel_patches/fs/* ./common/fs/
+          cp -r ../susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
+
+          # Enable SUSFS cho KernelSU Next
+          cd KernelSU-Next
+          cp ../../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./
+          patch -p1 --forward < 10_enable_susfs_for_ksu.patch || true
 
       - name: Build kernel
         run: |
           cd kernel
           export ARCH=arm64
           export SUBARCH=arm64
-          export CC=clang
-          export CROSS_COMPILE=aarch64-none-linux-gnu-
-          export PATH=$PATH:$HOME/clang/bin:$HOME/gcc/bin
-          make O=out $DEFCONFIG
-          make O=out -j$(nproc)
+          make O=out a06x_00_defconfig
+          make -j$(nproc) O=out ARCH=arm64 CC=clang CROSS_COMPILE=aarch64-none-linux-gnu-
 
-      - name: Pack with AnyKernel3
+      - name: Pack AnyKernel3
         run: |
-          git clone --depth=1 https://github.com/osm0sis/AnyKernel3
+          git clone https://github.com/osm0sis/AnyKernel3 AnyKernel3
           cp kernel/out/arch/arm64/boot/Image AnyKernel3/
           cd AnyKernel3
-          zip -r9 AnyKernel3.zip *
+          zip -r9 ../A06-Kernel-KSU-SUSFS.zip *
 
-      - name: Upload Artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-gki2.0-${{ env.DEVICE }}
-          path: AnyKernel3/AnyKernel3.zip
+          name: A06-Kernel-KSU-SUSFS
+          path: A06-Kernel-KSU-SUSFS.zip
