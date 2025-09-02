@@ -52,82 +52,78 @@ jobs:
           sed -i 's/^[[:space:]]*#/#/' drivers/power/supply/Kconfig || true
 
       - name: Select defconfig + Fetch ABI + Build Kernel
-        run: |
-          set -e
-          cd kernel-5.15
+  run: |
+    set -euxo pipefail
+    cd kernel-5.15
 
-          # 🔹 Chọn defconfig cho A06
-          if [ -f arch/arm64/configs/a06x_defconfig ]; then
-            DEFCONFIG=a06x_defconfig
-          elif [ -f arch/arm64/configs/a06_defconfig ]; then
-            DEFCONFIG=a06_defconfig
-          else
-            echo "❌ Không tìm thấy defconfig cho A06!"
-            exit 1
-          fi
-          echo "DEFCONFIG=$DEFCONFIG" >> $GITHUB_ENV
+    # chọn defconfig cho A06
+    if [ -f arch/arm64/configs/a06x_defconfig ]; then
+      DEFCONFIG=a06x_defconfig
+    elif [ -f arch/arm64/configs/a06_defconfig ]; then
+      DEFCONFIG=a06_defconfig
+    else
+      echo "❌ Không tìm thấy defconfig cho A06!"
+      exit 1
+    fi
+    echo "DEFCONFIG=$DEFCONFIG" >> $GITHUB_ENV
 
-          # 🔹 Clone ABI whitelist Android 13 - 5.15
-          cd ..
-          git clone --depth=1 https://android.googlesource.com/kernel/common -b android13-5.15 gki-common
-          cd kernel-5.15
+    # Clone ABI whitelist Android 13 - 5.15
+    cd ..
+    git clone --depth=1 https://android.googlesource.com/kernel/common -b android13-5.15 gki-common
+    cd kernel-5.15
 
-          # 🔹 Chọn ABI MTK trước, fallback generic
-          ABI_FILE="$(ls ../gki-common/android/ | grep -m1 'abi_gki_aarch64_mtk' || true)"
-          if [ -n "$ABI_FILE" ]; then
-            echo "✅ Dùng ABI whitelist MTK: $ABI_FILE"
-            cp ../gki-common/android/"$ABI_FILE" abi_symbollist.raw
-          else
-            echo "⚠️ Không có ABI MTK → thử generic"
-            ABI_FILE="$(ls ../gki-common/android/ | grep -m1 'abi_gki_aarch64_generic' || true)"
-            if [ -n "$ABI_FILE" ]; then
-              echo "✅ Dùng ABI whitelist generic: $ABI_FILE"
-              cp ../gki-common/android/"$ABI_FILE" abi_symbollist.raw
-            else
-              echo "❌ Không tìm thấy file ABI phù hợp → tạo file rỗng"
-              : > abi_symbollist.raw
-            fi
-          fi
+    ABI_FILE=$(ls ../gki-common/android/ | grep "abi_gki_aarch64_mtk" | head -n1 || true)
+    if [ -n "$ABI_FILE" ]; then
+      echo "✅ Dùng ABI whitelist MTK: $ABI_FILE"
+      cp ../gki-common/android/$ABI_FILE abi_symbollist.raw
+    else
+      echo "⚠️ Không có ABI MTK → thử generic"
+      ABI_FILE=$(ls ../gki-common/android/ | grep "abi_gki_aarch64_generic" | head -n1 || true)
+      if [ -n "$ABI_FILE" ]; then
+        echo "✅ Dùng ABI whitelist generic: $ABI_FILE"
+        cp ../gki-common/android/$ABI_FILE abi_symbollist.raw
+      else
+        echo "❌ Không tìm thấy file ABI phù hợp → tạo file rỗng"
+        : > abi_symbollist.raw
+      fi
+    fi
 
-          # 🔹 Copy ABI vào các path kernel hay check
-          mkdir -p abi out out/abi out/android/abi out/obj/KERNEL_OBJ/kernel-5.15
-          cp -f abi_symbollist.raw abi/abi_symbollist.raw
-          cp -f abi_symbollist.raw out/abi/abi_symbollist.raw
-          cp -f abi_symbollist.raw out/android/abi/abi_symbollist.raw
-          cp -f abi_symbollist.raw out/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
-          cp -f abi_symbollist.raw .abi_symbollist.raw
+    # Copy ABI vào mọi path mà kernel/vendor có thể tham chiếu
+    mkdir -p abi out out/abi out/android/abi out/obj/KERNEL_OBJ/kernel-5.15
+    cp abi_symbollist.raw abi/abi_symbollist.raw
+    cp abi_symbollist.raw out/abi/abi_symbollist.raw
+    cp abi_symbollist.raw out/android/abi/abi_symbollist.raw
+    cp abi_symbollist.raw out/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
 
-          # 🔹 (QUAN TRỌNG) Tạo đường dẫn tuyệt đối mà vendor hard-code rồi copy vào
-          sudo mkdir -p /home/dpi/qb5_8814/workspace/P4_1716/android/out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15
-          sudo mkdir -p /home/dpi/qb5_8814/workspace/P4_1716/android/out/target/product/a06/obj/KERNEL_OBJ/kernel-5.15
-          sudo cp -f abi_symbollist.raw /home/dpi/qb5_8814/workspace/P4_1716/android/out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
-          sudo cp -f abi_symbollist.raw /home/dpi/qb5_8814/workspace/P4_1716/android/out/target/product/a06/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
-          # (Tuỳ quyền, nếu cần có thể sudo chown để runner đọc/ghi)
-          sudo chown -R $USER:$USER /home/dpi || true
+    # (QUAN TRỌNG) Tạo đường dẫn tuyệt đối theo kiểu AOSP mà vendor hard-code
+    for prod in a06x a06; do
+      ABS="/home/dpi/qb5_8814/workspace/P4_1716/android/out/target/product/${prod}/obj/KERNEL_OBJ/kernel-5.15"
+      sudo mkdir -p "$ABS"
+      sudo install -m 644 abi_symbollist.raw "$ABS/abi_symbollist.raw"
+    done
 
-          echo "📌 ABI whitelist đã copy:"
-          (find . -name "abi_symbollist.raw" -ls || true)
+    echo "📌 ABI whitelist đã copy (bao gồm đường dẫn tuyệt đối):"
+    sudo find /home/dpi -path "*kernel-5.15/abi_symbollist.raw" -ls || true
+    find . -name "abi_symbollist.raw" -ls || true
 
-          # 🔹 Fix Kconfig encoding (loại ký tự unicode lạ)
-          find drivers -name "Kconfig*" -type f -exec sed -i 's/[^ -~]//g' {} +
+    # ----- FIX KCONFIG AN TOÀN (GIỮ TAB) -----
+    # 1) Đổi ‘ ’ -> '
+    find drivers -name "Kconfig*" -type f -print0 \
+      | xargs -0 sed -i "s/’/'/g; s/‘/'/g"
 
-          # 🔹 Build kernel + ghi log
-          chmod +x -R ./scripts
-          make O=out ARCH=arm64 "$DEFCONFIG"
-          yes "" | make O=out ARCH=arm64 olddefconfig
-          make -j"$(nproc --all)" O=out ARCH=arm64 \
-            CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld 2>&1 | tee build.log
+    # 2) Loại một số unicode hay gặp (NBSP, BOM) nhưng GIỮ tab
+    find drivers -name "Kconfig*" -type f -print0 \
+      | xargs -0 perl -i -pe 's/\x{00A0}/ /g; s/\x{FEFF}//g'
 
-      - name: Upload artifacts (config + zip + image + log + abi/obj)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Kernel-Outputs
-          path: |
-            kernel-5.15/build.log
-            kernel-5.15/out/.config
-            kernel-5.15/out/arch/arm64/boot/Image*
-            Kernel-A06-KSU-SUSFS.zip
-            kernel-5.15/out/abi/**
-            kernel-5.15/out/android/abi/**
-            kernel-5.15/out/obj/**
+    # (Tuyệt đối KHÔNG dùng s/[^ -~]//g vì sẽ xoá \t)
+    # ------------------------------------------
+
+    # Build + log
+    chmod +x -R ./scripts
+    make O=out ARCH=arm64 $DEFCONFIG
+    yes "" | make O=out ARCH=arm64 olddefconfig
+    make -j"$(nproc --all)" O=out ARCH=arm64 \
+      CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld 2>&1 | tee build.log
+
+    # Xuất vài dòng Kconfig quanh chỗ dễ lỗi để debug nếu cần
+    (nl -ba drivers/crypto/Kconfig | sed -n '670,720p' || true)
