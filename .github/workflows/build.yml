@@ -6,13 +6,10 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
-
     steps:
-      # B1: Checkout repo
       - name: Checkout repo
         uses: actions/checkout@v3
 
-      # B2: Debug - in ra thư mục hiện tại
       - name: Debug repo structure
         run: |
           echo "📂 Current Path: $(pwd)"
@@ -21,7 +18,6 @@ jobs:
           echo "📂 Check configs folder:"
           ls -R .github/configs || true
 
-      # B3: Cài dependencies
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -29,7 +25,6 @@ jobs:
             git wget curl build-essential bc bison flex \
             libssl-dev libncurses5-dev libelf-dev ccache unzip zip jq
 
-      # B4: Đọc file JSON (a06.json)
       - name: Parse config JSON
         id: parse
         run: |
@@ -52,14 +47,12 @@ jobs:
           echo "Branch: $KERNEL_BRANCH"
           echo "Defconfig: $DEFCONFIG"
 
-      # B5: Clone kernel source
       - name: Clone kernel source
         run: |
           echo "Cloning $KERNEL_REPO branch $KERNEL_BRANCH"
           git clone --depth=1 -b $KERNEL_BRANCH $KERNEL_REPO kernel || exit 1
           ls -la kernel
 
-      # B6: Build thử (chưa full, chỉ test defconfig)
       - name: Test defconfig
         run: |
           cd kernel
