@@ -20,9 +20,18 @@ jobs:
 
       - name: Download Kernel Source (Release)
         run: |
-          wget -O kernel.tar "https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/v1/kernel-5.15.tar"
-          mkdir kernel && tar -xf kernel.tar -C kernel --strip-components=1
+          wget -O kernel.tar "https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/kernel-5.15.tar"
+          -C kernel --strip-components=1
           ls kernel
+      - name: Extract Kernel Source
+        run: |
+          mkdir kernel && tar -xf kernel.tar -C kernel --strip-components=1
+
+      - name: Debug defconfig files
+        run: |
+          echo "📂 Listing defconfigs in arch/arm64/configs:"
+          ls -la kernel/arch/arm64/configs || true
+          echo "✅ If you see a06_defconfig or a06x_defconfig here, that's the one to use."
 
       - name: Clone AnyKernel3 & SUSFS
         run: |
