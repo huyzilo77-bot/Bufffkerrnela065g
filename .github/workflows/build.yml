@@ -34,9 +34,9 @@ jobs:
           echo "✅ If you see a06_defconfig or a06x_defconfig here, that's the one to use."
 
       - name: Clone AnyKernel3 & SUSFS
-        run: |
-          git clone https://github.com/osm0sis/AnyKernel3.git
-          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15
+  run: |
+    git clone https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+    git clone -b gki-android13-5.15 https://gitlab.com/simonpunk/susfs4ksu.git susfs
 
       - name: Apply KernelSU Next
         run: |
@@ -44,11 +44,11 @@ jobs:
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash
 
       - name: Apply SUSFS Patch (android13-5.15)
-        run: |
-          cd kernel
-          patch -p1 < ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch || true
-          cp ../susfs4ksu/kernel_patches/fs/* fs/ || true
-          cp ../susfs4ksu/kernel_patches/include/linux/* include/linux/ || true
+  run: |
+    cd kernel
+    patch -p1 < ../susfs/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch || true
+    cp -r ../susfs/kernel_patches/fs/* fs/ || true
+    cp -r ../susfs/kernel_patches/include/linux/* include/linux/ || true
 
       - name: Enable KSU + SUSFS Configs
         run: |
