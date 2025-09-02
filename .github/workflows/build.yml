@@ -56,7 +56,8 @@ jobs:
       - name: Select defconfig + Fetch ABI + Build Kernel
         run: |
           cd kernel-5.15
-          
+          chmod +x -R scripts   # 🔑 Fix permission denied
+
           # 🔹 Chọn defconfig
           if [ -f arch/arm64/configs/a06x_defconfig ]; then
             DEFCONFIG=a06x_defconfig
@@ -104,8 +105,7 @@ jobs:
           echo "📌 ABI whitelist đã copy:"
           find . -name "abi_symbollist.raw" -ls
 
-          # 🚀 Build kernel (fix permission + compiler)
-          chmod +x -R scripts
+          # 🚀 Build kernel bằng clang Android
           make -j$(nproc) O=out ARCH=arm64 \
             CC=clang CROSS_COMPILE=aarch64-linux-android- \
             CLANG_TRIPLE=aarch64-linux-gnu- LD=ld.lld
