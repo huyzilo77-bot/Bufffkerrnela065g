@@ -117,12 +117,12 @@ jobs:
     zip -r ../Kernel-A06-KSU-SUSFS.zip ./*
 
 - name: Upload artifacts (config + zip + image + log)
-  if: always()   # luôn upload dù build success hay fail
-  uses: actions/upload-artifact@v4
-  with:
-    name: Kernel-Outputs
-    path: |
-      kernel-5.15/out/.config
-      kernel-5.15/out/arch/arm64/boot/Image*
-      Kernel-A06-KSU-SUSFS.zip
-      build.log
+        if: always()   # luôn upload kể cả khi build fail
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kernel-Outputs
+          path: |
+            kernel-5.15/out/.config
+            kernel-5.15/out/arch/arm64/boot/Image*
+            Kernel-A06-KSU-SUSFS.zip
+            kernel-5.15/build.log
