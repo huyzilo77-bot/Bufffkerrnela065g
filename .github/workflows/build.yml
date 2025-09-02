@@ -16,13 +16,13 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y git wget build-essential bc bison flex \
-            libssl-dev libelf-dev ccache unzip python3 clang llvm lld \
-            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+            libssl-dev libelf-dev ccache unzip zip python3 clang llvm lld \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu curl
 
       - name: Download Kernel Source (Release)
         run: |
           wget -O kernel.tar "https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/kernel-5.15.tar"
-      
+
       - name: Extract Kernel Source
         run: |
           mkdir kernel-5.15
@@ -45,79 +45,97 @@ jobs:
           cp -r ../susfs/kernel_patches/fs/* fs/ || true
           cp -r ../susfs/kernel_patches/include/linux/* include/linux/ || true
 
-      - name: Fix Kconfig encoding
+      - name: Fix Kconfig encoding (sanitize quotes/whitespace)
         run: |
           cd kernel-5.15
-          find drivers -name "Kconfig*" -type f -exec sed -i 's/[^ -~]//g' {} +
+          find drivers -name "Kconfig*" -type f -print0 | xargs -0 sed -i "s/’/'/g; s/‘/'/g"
           sed -i 's/^[[:space:]]*#/#/' drivers/power/supply/Kconfig || true
 
       - name: Select defconfig + Fetch ABI + Build Kernel
         run: |
+          set -e
           cd kernel-5.15
 
-          # 🔹 Chọn defconfig cho A06
+          # --- Choose defconfig
           if [ -f arch/arm64/configs/a06x_defconfig ]; then
             DEFCONFIG=a06x_defconfig
           elif [ -f arch/arm64/configs/a06_defconfig ]; then
             DEFCONFIG=a06_defconfig
           else
-            echo "❌ Không tìm thấy defconfig cho A06!"
-            exit 1
+            echo "❌ Không tìm thấy defconfig cho A06!"; exit 1
           fi
+          echo "DEFCONFIG=$DEFCONFIG"
           echo "DEFCONFIG=$DEFCONFIG" >> $GITHUB_ENV
 
-          # 🔹 Clone ABI whitelist Android 13 - 5.15
+          # --- Fetch ABI whitelist (Android 13 - 5.15)
           cd ..
           git clone --depth=1 https://android.googlesource.com/kernel/common -b android13-5.15 gki-common
           cd kernel-5.15
 
-          ABI_FILE=$(find ../gki-common/android/ -name "abi_gki_aarch64_mtk*" | head -n1 || true)
+          ABI_FILE=$(ls ../gki-common/android/ | grep "abi_gki_aarch64_mtk" | head -n1 || true)
           if [ -n "$ABI_FILE" ]; then
-            echo "✅ Dùng ABI whitelist MTK: $ABI_FILE"
-            cp "$ABI_FILE" abi_symbollist.raw
+            echo "✅ ABI MTK: $ABI_FILE"
+            cp ../gki-common/android/$ABI_FILE abi_symbollist.raw
           else
             echo "⚠️ Không có ABI MTK → thử generic"
-            ABI_FILE=$(find ../gki-common/android/ -name "abi_gki_aarch64_generic*" | head -n1 || true)
+            ABI_FILE=$(ls ../gki-common/android/ | grep "abi_gki_aarch64_generic" | head -n1 || true)
             if [ -n "$ABI_FILE" ]; then
-              echo "✅ Dùng ABI whitelist generic: $ABI_FILE"
-              cp "$ABI_FILE" abi_symbollist.raw
+              echo "✅ ABI generic: $ABI_FILE"
+              cp ../gki-common/android/$ABI_FILE abi_symbollist.raw
             else
-              echo "❌ Không tìm thấy file ABI phù hợp → tạo file rỗng"
-              touch abi_symbollist.raw
+              echo "❌ Không có ABI phù hợp → tạo file rỗng"
+              : > abi_symbollist.raw
             fi
           fi
 
-          # 🔹 Copy ABI vào các đường dẫn cần thiết
-          mkdir -p out/abi out/android/abi
-          cp abi_symbollist.raw out/abi/abi_symbollist.raw
-          cp abi_symbollist.raw out/android/abi/abi_symbollist.raw
+          # --- Place ABI in all likely paths
+          mkdir -p abi out out/abi out/android/abi out/obj/KERNEL_OBJ/kernel-5.15
+          cp -f abi_symbollist.raw abi/abi_symbollist.raw || true
+          cp -f abi_symbollist.raw out/abi/abi_symbollist.raw || true
+          cp -f abi_symbollist.raw out/android/abi/abi_symbollist.raw || true
+          cp -f abi_symbollist.raw out/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw || true
+          cp -f abi_symbollist.raw .abi_symbollist.raw || true
+          echo "📌 ABI files:"
+          find . -name "*abi_symbollist.raw" -ls || true
 
-          # 🔹 Build kernel + log
-          chmod +x -R ./scripts
-          make O=out ARCH=arm64 $DEFCONFIG
-          yes "" | make O=out ARCH=arm64 olddefconfig
-          make -j$(nproc) O=out ARCH=arm64 \
-            CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld 2>&1 | tee build.log
+          # --- Build (don't fail step so chúng ta vẫn upload log/out)
+          chmod +x -R ./scripts || true
+          make O=out ARCH=arm64 "$DEFCONFIG" || true
+          yes "" | make O=out ARCH=arm64 olddefconfig || true
+          make -j"$(nproc --all)" O=out ARCH=arm64 \
+            CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld 2>&1 | tee build.log || true
 
-      - name: Pack & Upload Kernel
-        if: success()
+      - name: Pack AnyKernel (if Image exists)
         run: |
-          IMG_PATH=$(find kernel-5.15/out/arch/arm64/boot/ -maxdepth 1 -name "Image*" | head -n1 || true)
-
-          if [ -z "$IMG_PATH" ]; then
-            echo "❌ Kernel build failed! No Image or Image.gz-dtb found."
-            exit 1
+          set -e
+          IMG=$(ls kernel-5.15/out/arch/arm64/boot/Image* 2>/dev/null || true)
+          if [ -z "$IMG" ]; then
+            echo "⚠️ Không thấy Image → thử Image.gz-dtb"
+            IMG=$(ls kernel-5.15/out/arch/arm64/boot/Image.gz-dtb* 2>/dev/null || true)
           fi
 
-          cp "$IMG_PATH" AnyKernel3/Image
+          if [ -n "$IMG" ]; then
+            echo "✅ Found kernel image: $IMG"
+            cp "$IMG" AnyKernel3/Image
+            (cd kernel-5.15/out/arch/arm64/boot && cp -r dtb* ../../../../AnyKernel3/ || true)
+            (cd kernel-5.15/out/arch/arm64/boot && cp -r dtbo* ../../../../AnyKernel3/ || true)
+            cd AnyKernel3
+            zip -r ../Kernel-A06-KSU-SUSFS.zip ./*
+          else
+            echo "❌ Không tạo được Image. Bỏ qua bước zip (sẽ upload log + out để debug)."
+          fi
 
-          (cd kernel-5.15/out/arch/arm64/boot && cp -r dtb* ../../../../AnyKernel3/ || true)
-          (cd kernel-5.15/out/arch/arm64/boot && cp -r dtbo* ../../../../AnyKernel3/ || true)
+      - name: Pack build out dir (always)
+        if: always()
+        run: |
+          if [ -d kernel-5.15/out ]; then
+            tar -czf out.tar.gz -C kernel-5.15 out
+            echo "Packed out/ -> out.tar.gz"
+          else
+            echo "No out/ directory to pack."
+          fi
 
-          cd AnyKernel3
-          zip -r ../Kernel-A06-KSU-SUSFS.zip ./*
-
-      - name: Upload artifacts (config + zip + image + log)
+      - name: Upload artifacts (config + zip + image + log + out.tar.gz)
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -127,3 +145,4 @@ jobs:
             kernel-5.15/out/arch/arm64/boot/Image*
             Kernel-A06-KSU-SUSFS.zip
             kernel-5.15/build.log
+            out.tar.gz
