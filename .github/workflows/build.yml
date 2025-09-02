@@ -9,71 +9,49 @@ jobs:
     timeout-minutes: 120
 
     steps:
-      # 1. Checkout
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      # 2. Install dependencies
       - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y git wget curl build-essential bc bison flex \
-            libssl-dev libelf-dev ccache unzip python3 clang llvm lld dos2unix \
+          sudo apt install -y git wget build-essential bc bison flex \
+            libssl-dev libelf-dev ccache unzip python3 clang llvm lld \
             gcc-aarch64-linux-gnu
 
-      # 3. Download Kernel Source
-      - name: Download Kernel Source (Release auto-detect)
+      - name: Download Kernel Source (Release)
         run: |
-          echo "⬇️ Tải kernel source từ release V1"
-          ASSET_URL=$(curl -s https://api.github.com/repos/huyzilo77-bot/Bufffkernela065g/releases/tags/V1 \
-            | grep "browser_download_url" \
-            | grep "kernel-5.15.tar" \
-            | cut -d '"' -f 4)
+          wget -O kernel.tar "https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/kernel-5.15.tar"
 
-          if [ -z "$ASSET_URL" ]; then
-            echo "❌ Không tìm thấy asset kernel-5.15.tar"
-            exit 1
-          fi
-
-          wget -nv -O kernel.tar "$ASSET_URL"
-          mkdir -p kernel-5.15
+      - name: Extract Kernel Source
+        run: |
+          mkdir kernel-5.15
           tar -xf kernel.tar -C kernel-5.15 --strip-components=1
-          echo "✅ Giải nén thành công"
-          ls -la kernel-5.15 | head -20
 
-      # 4. Liệt kê tất cả defconfig
-      - name: List defconfigs
-        run: |
-          cd kernel-5.15
-          echo "📂 Tất cả file defconfig trong arch/arm64/configs:"
-          ls arch/arm64/configs | grep defconfig
-
-      # 5. Fetch ABI whitelist
       - name: Fetch ABI whitelist from AOSP GKI
         run: |
           git clone --depth=1 https://android.googlesource.com/kernel/common -b android13-5.15 gki-common
-          ABI_FILE=$(ls gki-common/android/abi_gki_aarch64* 2>/dev/null | head -n1 || true)
+          ABI_FILE=$(ls gki-common/android/ | grep -E "abi_gki_aarch64_" | head -n1 || true)
+          mkdir -p kernel-5.15/abi
           if [ -n "$ABI_FILE" ]; then
-            cp "$ABI_FILE" kernel-5.15/abi_symbollist.raw
-            echo "✅ Copied ABI: $ABI_FILE"
+            echo "✅ Dùng ABI: $ABI_FILE"
+            cp "gki-common/android/$ABI_FILE" kernel-5.15/abi/abi_symbollist.raw
           else
-            echo "⚠️ Không tìm thấy ABI, tạo file rỗng"
-            touch kernel-5.15/abi_symbollist.raw
+            echo "⚠️ Không tìm thấy ABI → tạo file rỗng"
+            touch kernel-5.15/abi/abi_symbollist.raw
           fi
+          ls -l kernel-5.15/abi/abi_symbollist.raw
 
-      # 6. Clone utilities
       - name: Clone utilities (AnyKernel3 & SUSFS)
         run: |
           git clone https://github.com/osm0sis/AnyKernel3.git AnyKernel3
           git clone -b gki-android13-5.15 https://gitlab.com/simonpunk/susfs4ksu.git susfs
 
-      # 7. Apply KernelSU-Next
       - name: Apply KernelSU-Next
         run: |
           cd kernel-5.15
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -
 
-      # 8. Apply SUSFS
       - name: Apply SUSFS patch
         run: |
           cd kernel-5.15
@@ -81,20 +59,20 @@ jobs:
           cp -r ../susfs/kernel_patches/fs/* fs/ || true
           cp -r ../susfs/kernel_patches/include/linux/* include/linux/ || true
 
-      # 9. Fix Kconfig
       - name: Fix Kconfig encoding
         run: |
           cd kernel-5.15
-          find . -name "Kconfig*" -exec dos2unix {} \;
-          find . -name "Kconfig*" -exec sed -i "s/’/'/g" {} \;
+          # loại bỏ ký tự lạ và khoảng trắng đầu dòng
+          sed -i "s/’/'/g; s/‘/'/g" $(grep -rl $'\xE2\x80' drivers/ || true)
+          sed -i 's/^[[:space:]]*#/#/' drivers/power/supply/Kconfig || true
 
-      # 10. Select defconfig (sẽ chỉnh lại sau khi biết tên chính xác)
       - name: Select defconfig
+        id: defconfig
         run: |
           cd kernel-5.15
-          if [ -f "arch/arm64/configs/a06x_defconfig" ]; then
+          if [ -f arch/arm64/configs/a06x_defconfig ]; then
             DEFCONFIG=a06x_defconfig
-          elif [ -f "arch/arm64/configs/a06_defconfig" ]; then
+          elif [ -f arch/arm64/configs/a06_defconfig ]; then
             DEFCONFIG=a06_defconfig
           else
             echo "❌ Không tìm thấy defconfig cho A06!"
@@ -103,10 +81,32 @@ jobs:
           echo "✅ Dùng defconfig: $DEFCONFIG"
           echo "DEFCONFIG=$DEFCONFIG" >> $GITHUB_ENV
 
-      # 11. Build kernel
       - name: Build Kernel
         run: |
           cd kernel-5.15
+          chmod +x -R ./scripts
+
+          make O=out ARCH=arm64 ${{ env.DEFCONFIG }}
+          yes "" | make O=out ARCH=arm64 olddefconfig
+          make -j$(nproc --all) O=out ARCH=arm64 \
+            CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld
+
+      - name: Pack AnyKernel3 zip
+        run: |
+          IMG=$(ls kernel-5.15/out/arch/arm64/boot/Image* | head -n1)
+          cp "$IMG" AnyKernel3/Image
+          (cd kernel-5.15/out/arch/arm64/boot && cp -r dtb* ../../../../AnyKernel3/ || true)
+          (cd kernel-5.15/out/arch/arm64/boot && cp -r dtbo* ../../../../AnyKernel3/ || true)
+          cd AnyKernel3
+          zip -r ../Kernel-A06-KSU-SUSFS.zip ./*
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kernel-A06-KSU-SUSFS
+          path: |
+            *.zip
+            kernel-5.15/out/arch/arm64/boot/Image*          cd kernel-5.15
           make O=out ARCH=arm64 $DEFCONFIG
           make -j$(nproc) O=out ARCH=arm64 \
             CC=clang LD=ld.lld CROSS_COMPILE=aarch64-linux-gnu-
