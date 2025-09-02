@@ -32,7 +32,7 @@ jobs:
           echo "📂 Files in gki-common/android/"
           ls -la gki-common/android | grep abi || true
           
-          # Copy đúng file ABI cho MediaTek (không có .raw ở tên gốc)
+          # Copy đúng file ABI cho MediaTek
           cp gki-common/android/abi_gki_aarch64_mediatek kernel-5.15/abi_symbollist.raw
           echo "[INFO] Copied abi_gki_aarch64_mediatek -> abi_symbollist.raw"
           ls -l kernel-5.15/abi_symbollist.raw
