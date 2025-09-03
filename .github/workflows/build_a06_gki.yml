@@ -1,0 +1,143 @@
+name: Build Samsung A06 5G (GKI 5.15.151 • KSU-Next + SUSFS)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Maximize build space
+        uses: AdityaGarg8/remove-unwanted-software@v5
+        with:
+          remove-android: 'true'
+          remove-dotnet: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+          remove-docker-images: 'true'
+          remove-large-packages: 'true'
+          remove-swapfile: 'true'
+          verbose: 'true'
+
+      - name: Install toolchain & deps (clang-16, lld-16)
+        run: |
+          set -eux
+          sudo apt update
+          sudo apt install -y             git curl wget unzip zip xz-utils zstd             build-essential bc bison flex             libelf-dev libssl-dev libarchive-tools             device-tree-compiler lz4             llvm-16 clang-16 lld-16             python3 python-is-python3             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu             pahole
+          sudo update-alternatives --install /usr/bin/clang   clang   /usr/bin/clang-16 100
+          sudo update-alternatives --install /usr/bin/ld.lld  ld.lld  /usr/bin/lld-16   100
+
+      - name: Download kernel source (A06 • 5.15.151)
+        run: |
+          set -eux
+          wget -O kernel.tar "https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/kernel-5.15.tar"
+          mkdir kernel-5.15
+          tar -xf kernel.tar -C kernel-5.15 --strip-components=1
+
+      - name: Clone AnyKernel3 & SUSFS
+        run: |
+          set -eux
+          git clone https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+          git clone -b gki-android13-5.15 https://gitlab.com/simonpunk/susfs4ksu.git susfs
+
+      - name: Apply KernelSU-Next
+        run: |
+          set -eux
+          cd kernel-5.15
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s -- -s next
+
+      - name: Apply SUSFS patches
+        run: |
+          set -eux
+          cd kernel-5.15
+          patch -p1 --forward < ../susfs/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch || true
+          cp -r ../susfs/kernel_patches/fs/* fs/ || true
+          cp -r ../susfs/kernel_patches/include/linux/* include/linux/ || true
+
+      - name: Fix Kconfig unicode/whitespace
+        run: |
+          set -eux
+          cd kernel-5.15
+          find drivers -name "Kconfig*" -type f -print0 | xargs -0 sed -i "s/’/'/g; s/‘/'/g"
+          find drivers -name "Kconfig*" -type f -print0 | xargs -0 perl -i -pe 's/\x{00A0}/ /g; s/\x{FEFF}//g; s/\r$//'
+          sed -i 's/^[[:space:]]*#/#/' drivers/power/supply/Kconfig || true
+
+      - name: Select defconfig + Fetch ABI + Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd kernel-5.15
+          if [ -f arch/arm64/configs/a06x_defconfig ]; then
+            DEFCONFIG=a06x_defconfig
+          elif [ -f arch/arm64/configs/a06_defconfig ]; then
+            DEFCONFIG=a06_defconfig
+          else
+            echo "❌ No defconfig found!"
+            exit 1
+          fi
+          echo "✅ DEFCONFIG=$DEFCONFIG"
+          cd ..
+          git clone --depth=1 https://android.googlesource.com/kernel/common -b android13-5.15 gki-common
+          cd kernel-5.15
+          ABI_FILE=""
+          if ls ../gki-common/android/ | grep -q "abi_gki_aarch64_mtk"; then
+            ABI_FILE=$(ls ../gki-common/android/ | grep "abi_gki_aarch64_mtk" | head -n1)
+          elif ls ../gki-common/android/ | grep -q "abi_gki_aarch64_generic"; then
+            ABI_FILE=$(ls ../gki-common/android/ | grep "abi_gki_aarch64_generic" | head -n1)
+          fi
+          if [ -n "${ABI_FILE:-}" ]; then
+            cp "../gki-common/android/$ABI_FILE" abi_symbollist.raw
+          else
+            : > abi_symbollist.raw
+          fi
+          mkdir -p abi out out/abi out/android/abi out/obj/KERNEL_OBJ/kernel-5.15
+          cp abi_symbollist.raw abi/abi_symbollist.raw
+          cp abi_symbollist.raw out/abi/abi_symbollist.raw
+          cp abi_symbollist.raw out/android/abi/abi_symbollist.raw
+          cp abi_symbollist.raw out/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
+          chmod +x -R ./scripts || true
+          make O=out ARCH=arm64 "$DEFCONFIG"
+          yes "" | make O=out ARCH=arm64 olddefconfig </dev/null
+          ./scripts/config --file out/.config -e KSU -e KSU_SUSFS || true
+          ./scripts/config --file out/.config -d KSU_KPROBES_HOOK || true
+          yes "" | make O=out ARCH=arm64 olddefconfig </dev/null
+          ( make -j$(nproc --all) O=out ARCH=arm64 CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld Image dtbs modules 2>&1 | tee build.log ); test ${PIPESTATUS[0]} -eq 0
+
+      - name: Pack AnyKernel3
+        run: |
+          set -eux
+          IMG=$(ls kernel-5.15/out/arch/arm64/boot/Image* 2>/dev/null | head -n1 || true)
+          if [ -z "$IMG" ]; then
+            IMG=$(ls kernel-5.15/out/arch/arm64/boot/*.tar.gz 2>/dev/null | head -n1 || true)
+            if [ -n "$IMG" ]; then
+              cp "$IMG" AnyKernel3/Image.tar.gz
+            else
+              echo "❌ No kernel image found!"
+              exit 1
+            fi
+          else
+            cp "$IMG" AnyKernel3/Image
+          fi
+          (cd kernel-5.15/out/arch/arm64/boot && cp -r dtb* ../../../../AnyKernel3/ || true)
+          (cd kernel-5.15/out/arch/arm64/boot && cp -r dtbo* ../../../../AnyKernel3/ || true)
+          cd AnyKernel3
+          zip -r ../Kernel-A06-5.15.151-KSU-Next-SUSFS.zip ./*
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kernel-Outputs-A06-5.15.151
+          path: |
+            kernel-5.15/build.log
+            kernel-5.15/out/.config
+            kernel-5.15/out/arch/arm64/boot/Image*
+            kernel-5.15/out/arch/arm64/boot/*.tar.gz
+            Kernel-A06-5.15.151-KSU-Next-SUSFS.zip
+            kernel-5.15/out/**/*.o
+            kernel-5.15/out/**/*.cmd
