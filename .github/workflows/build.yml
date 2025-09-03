@@ -16,24 +16,13 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y git wget build-essential bc bison flex \
-            libssl-dev libelf-dev ccache unzip zip python3 clang llvm lld \
-            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu curl
-
-      - name: Download Kernel Source (Release)
-        run: |
-          wget -O kernel.tar "https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/kernel-5.15.tar"
-
-      - name: Extract Kernel Source
-        run: |
-          mkdir kernel-5.15
-          tar -xf kernel.tar -C kernel-5.15 --strip-components=1
+            libssl-dev libelf-dev ccache unzip zip python3 curl
 
       - name: Install clang-16 + Fix script permissions
         run: |
-          sudo apt update
           sudo apt install -y llvm-16 clang-16 lld-16
 
-          # update-alternatives để ép kernel dùng clang-16
+          # ép kernel dùng clang-16
           sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-16 100
           sudo update-alternatives --install /usr/bin/ld.lld ld.lld /usr/bin/lld-16 100
           sudo update-alternatives --install /usr/bin/llvm-ar llvm-ar /usr/bin/llvm-ar-16 100
@@ -42,10 +31,12 @@ jobs:
           sudo update-alternatives --install /usr/bin/llvm-objdump llvm-objdump /usr/bin/llvm-objdump-16 100
           sudo update-alternatives --install /usr/bin/llvm-strip llvm-strip /usr/bin/llvm-strip-16 100
 
-          # fix quyền script kernel
-          cd kernel-5.15 || true
-          chmod +x -R ./scripts || true
-          cd ..
+      - name: Download Kernel Source (Release)
+        run: |
+          wget -O kernel.tar "https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/kernel-5.15.tar"
+          mkdir kernel-5.15
+          tar -xf kernel.tar -C kernel-5.15 --strip-components=1
+          chmod +x -R kernel-5.15/scripts || true
 
       - name: Clone utilities (AnyKernel3 & SUSFS)
         run: |
@@ -64,13 +55,13 @@ jobs:
           cp -r ../susfs/kernel_patches/fs/* fs/ || true
           cp -r ../susfs/kernel_patches/include/linux/* include/linux/ || true
 
-      - name: Fix Kconfig encoding (sanitize quotes/whitespace)
+      - name: Fix Kconfig encoding
         run: |
           cd kernel-5.15
           find drivers -name "Kconfig*" -type f -print0 | xargs -0 sed -i "s/’/'/g; s/‘/'/g"
           sed -i 's/^[[:space:]]*#/#/' drivers/power/supply/Kconfig || true
 
-      - name: Select defconfig + Fetch ABI + Disable ABI check + Build Kernel
+      - name: Select defconfig + Fetch ABI + Build Kernel
         shell: bash
         run: |
           set -euo pipefail
@@ -97,30 +88,43 @@ jobs:
           else
             : > abi_symbollist.raw
           fi
-          mkdir -p out/abi
+
+          # copy ABI nhiều path để tránh lỗi
+          mkdir -p abi out out/abi out/android/abi out/obj/KERNEL_OBJ/kernel-5.15
+          cp abi_symbollist.raw abi/abi_symbollist.raw
           cp abi_symbollist.raw out/abi/abi_symbollist.raw
+          cp abi_symbollist.raw out/android/abi/abi_symbollist.raw
+          cp abi_symbollist.raw out/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
 
           # build .config (non-interactive)
           make O=out ARCH=arm64 "$DEFCONFIG"
-          make O=out ARCH=arm64 olddefconfig </dev/null
+          yes "" | make O=out ARCH=arm64 olddefconfig || true
+          make O=out ARCH=arm64 olddefconfig </dev/null || true
 
           echo "✅ .config sinh ra:"
           head -n 20 out/.config || true
 
           # ép bật option kernel image
-          scripts/config --file out/.config -e BUILD_ARM64_KERNEL -e KERNEL_GZIP || true
-          make O=out ARCH=arm64 olddefconfig </dev/null
+          if [ -f scripts/config ]; then
+            scripts/config --file out/.config -e BUILD_ARM64_KERNEL -e KERNEL_GZIP || true
+            make O=out ARCH=arm64 olddefconfig </dev/null || true
+          fi
+
+          # savedefconfig → lưu config sạch
+          make O=out ARCH=arm64 savedefconfig
+          cp out/defconfig arch/arm64/configs/$DEFCONFIG || true
+          echo "✅ Đã cập nhật lại arch/arm64/configs/$DEFCONFIG"
 
           # build kernel
           ( make -j$(nproc --all) O=out ARCH=arm64 \
               CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld \
               Image dtbs modules 2>&1 | tee build.log ) || exit ${PIPESTATUS[0]}
 
-          # 🔹 Kiểm tra output
+          # check output
           if [ -f out/arch/arm64/boot/Image ]; then
-            echo "✅ Build thành công: tìm thấy out/arch/arm64/boot/Image"
+            echo "✅ Build thành công: out/arch/arm64/boot/Image"
           elif [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
-            echo "✅ Build thành công: tìm thấy out/arch/arm64/boot/Image.gz-dtb"
+            echo "✅ Build thành công: out/arch/arm64/boot/Image.gz-dtb"
           else
             echo "❌ Build xong nhưng không có Image!"
             exit 1
@@ -128,22 +132,17 @@ jobs:
 
       - name: Pack AnyKernel3 zip
         run: |
-          # Ưu tiên Image*
           IMG=$(ls kernel-5.15/out/arch/arm64/boot/Image* 2>/dev/null || true)
-
-          # Nếu không có Image, thử lấy file tar.gz
           if [ -z "$IMG" ]; then
             echo "⚠️ Không tìm thấy Image → thử lấy kernel tar.gz"
             IMG=$(ls kernel-5.15/out/arch/arm64/boot/*.tar.gz 2>/dev/null || true)
             if [ -n "$IMG" ]; then
-              echo "✅ Tìm thấy kernel tar.gz: $IMG"
               cp "$IMG" AnyKernel3/Image.tar.gz
             else
               echo "❌ Kernel không tạo ra Image hoặc tar.gz!"
               exit 1
             fi
           else
-            echo "✅ Tìm thấy kernel Image: $IMG"
             cp "$IMG" AnyKernel3/Image
           fi
 
@@ -151,11 +150,11 @@ jobs:
           (cd kernel-5.15/out/arch/arm64/boot && cp -r dtb* ../../../../AnyKernel3/ || true)
           (cd kernel-5.15/out/arch/arm64/boot && cp -r dtbo* ../../../../AnyKernel3/ || true)
 
-          # Đóng gói zip AnyKernel3
+          # zip lại
           cd AnyKernel3
           zip -r ../Kernel-A06-KSU-SUSFS.zip ./*
 
-      - name: Upload artifacts (config + zip + image/tar.gz + log + out)
+      - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -166,5 +165,3 @@ jobs:
             kernel-5.15/out/arch/arm64/boot/*.tar.gz
             Kernel-A06-KSU-SUSFS.zip
             kernel-5.15/build.log
-            kernel-5.15/out/**/*.o
-            kernel-5.15/out/**/*.cmd
