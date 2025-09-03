@@ -61,13 +61,13 @@ jobs:
           find drivers -name "Kconfig*" -type f -print0 | xargs -0 sed -i "s/’/'/g; s/‘/'/g"
           sed -i 's/^[[:space:]]*#/#/' drivers/power/supply/Kconfig || true
 
-      - name: Select defconfig + Fetch ABI + Build Kernel
+      - name: Select defconfig + Fetch ABI + Disable ABI check + Build Kernel
         shell: bash
         run: |
           set -euo pipefail
           cd kernel-5.15
 
-          # chọn defconfig
+          # 🔹 chọn defconfig
           if [ -f arch/arm64/configs/a06x_defconfig ]; then
             DEFCONFIG=a06x_defconfig
           elif [ -f arch/arm64/configs/a06_defconfig ]; then
@@ -76,9 +76,10 @@ jobs:
             echo "❌ Không tìm thấy defconfig cho A06!"
             exit 1
           fi
+          echo "👉 Sử dụng defconfig: $DEFCONFIG"
           echo "DEFCONFIG=$DEFCONFIG" >> "$GITHUB_ENV"
 
-          # clone ABI
+          # 🔹 clone ABI whitelist
           cd ..
           git clone --depth=1 https://android.googlesource.com/kernel/common -b android13-5.15 gki-common
           cd kernel-5.15
@@ -89,42 +90,40 @@ jobs:
             : > abi_symbollist.raw
           fi
 
-          # copy ABI nhiều path để tránh lỗi
-          mkdir -p abi out out/abi out/android/abi out/obj/KERNEL_OBJ/kernel-5.15
-          cp abi_symbollist.raw abi/abi_symbollist.raw
+          # copy ABI vào nhiều path để tránh lỗi
+          mkdir -p out/abi out/android/abi out/obj/KERNEL_OBJ/kernel-5.15
           cp abi_symbollist.raw out/abi/abi_symbollist.raw
           cp abi_symbollist.raw out/android/abi/abi_symbollist.raw
           cp abi_symbollist.raw out/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
 
-          # build .config (non-interactive)
+          # 🔹 build .config (non-interactive)
           make O=out ARCH=arm64 "$DEFCONFIG"
-          yes "" | make O=out ARCH=arm64 olddefconfig || true
-          make O=out ARCH=arm64 olddefconfig </dev/null || true
+          yes "" | make O=out ARCH=arm64 olddefconfig </dev/null || true
 
           echo "✅ .config sinh ra:"
           head -n 20 out/.config || true
 
-          # ép bật option kernel image
+          # 🔹 ép bật option kernel image
           if [ -f scripts/config ]; then
-            scripts/config --file out/.config -e BUILD_ARM64_KERNEL -e KERNEL_GZIP || true
+            scripts/config --file out/.config -e BUILD_ARM64_KERNEL -e KERNEL_GZIP
             make O=out ARCH=arm64 olddefconfig </dev/null || true
           fi
 
-          # savedefconfig → lưu config sạch
-          make O=out ARCH=arm64 savedefconfig
+          # 🔹 build host tools + savedefconfig
+          make O=out ARCH=arm64 HOSTCC=gcc HOSTCXX=g++ olddefconfig prepare </dev/null
+          make O=out ARCH=arm64 savedefconfig </dev/null
           cp out/defconfig arch/arm64/configs/$DEFCONFIG || true
-          echo "✅ Đã cập nhật lại arch/arm64/configs/$DEFCONFIG"
 
-          # build kernel
+          # 🔹 build kernel + log
           ( make -j$(nproc --all) O=out ARCH=arm64 \
               CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld \
               Image dtbs modules 2>&1 | tee build.log ) || exit ${PIPESTATUS[0]}
 
-          # check output
+          # 🔹 kiểm tra output
           if [ -f out/arch/arm64/boot/Image ]; then
-            echo "✅ Build thành công: out/arch/arm64/boot/Image"
+            echo "✅ Build thành công: tìm thấy Image"
           elif [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
-            echo "✅ Build thành công: out/arch/arm64/boot/Image.gz-dtb"
+            echo "✅ Build thành công: tìm thấy Image.gz-dtb"
           else
             echo "❌ Build xong nhưng không có Image!"
             exit 1
