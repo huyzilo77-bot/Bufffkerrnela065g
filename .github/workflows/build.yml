@@ -16,13 +16,22 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y git wget build-essential bc bison flex \
-            libssl-dev libelf-dev ccache unzip zip python3 curl
+            libssl-dev libelf-dev ccache unzip zip python3 clang llvm lld \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu curl
+
+      - name: Download Kernel Source (Release)
+        run: |
+          wget -O kernel.tar "https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/kernel-5.15.tar"
+
+      - name: Extract Kernel Source
+        run: |
+          mkdir kernel-5.15
+          tar -xf kernel.tar -C kernel-5.15 --strip-components=1
 
       - name: Install clang-16 + Fix script permissions
         run: |
+          sudo apt update
           sudo apt install -y llvm-16 clang-16 lld-16
-
-          # ép kernel dùng clang-16
           sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-16 100
           sudo update-alternatives --install /usr/bin/ld.lld ld.lld /usr/bin/lld-16 100
           sudo update-alternatives --install /usr/bin/llvm-ar llvm-ar /usr/bin/llvm-ar-16 100
@@ -30,13 +39,9 @@ jobs:
           sudo update-alternatives --install /usr/bin/llvm-objcopy llvm-objcopy /usr/bin/llvm-objcopy-16 100
           sudo update-alternatives --install /usr/bin/llvm-objdump llvm-objdump /usr/bin/llvm-objdump-16 100
           sudo update-alternatives --install /usr/bin/llvm-strip llvm-strip /usr/bin/llvm-strip-16 100
-
-      - name: Download Kernel Source (Release)
-        run: |
-          wget -O kernel.tar "https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/kernel-5.15.tar"
-          mkdir kernel-5.15
-          tar -xf kernel.tar -C kernel-5.15 --strip-components=1
-          chmod +x -R kernel-5.15/scripts || true
+          cd kernel-5.15 || true
+          chmod +x -R ./scripts || true
+          cd ..
 
       - name: Clone utilities (AnyKernel3 & SUSFS)
         run: |
@@ -55,7 +60,7 @@ jobs:
           cp -r ../susfs/kernel_patches/fs/* fs/ || true
           cp -r ../susfs/kernel_patches/include/linux/* include/linux/ || true
 
-      - name: Fix Kconfig encoding
+      - name: Fix Kconfig encoding (sanitize quotes/whitespace)
         run: |
           cd kernel-5.15
           find drivers -name "Kconfig*" -type f -print0 | xargs -0 sed -i "s/’/'/g; s/‘/'/g"
@@ -67,7 +72,7 @@ jobs:
           set -euo pipefail
           cd kernel-5.15
 
-          # 🔹 Chọn defconfig cho A06
+          # chọn defconfig
           if [ -f arch/arm64/configs/a06x_defconfig ]; then
             DEFCONFIG=a06x_defconfig
           elif [ -f arch/arm64/configs/a06_defconfig ]; then
@@ -77,63 +82,51 @@ jobs:
             exit 1
           fi
           echo "DEFCONFIG=$DEFCONFIG" >> "$GITHUB_ENV"
-          echo "👉 Sử dụng defconfig: $DEFCONFIG"
 
-          # 🔹 Clone ABI whitelist Android 13 - 5.15
+          # clone ABI whitelist
           cd ..
           git clone --depth=1 https://android.googlesource.com/kernel/common -b android13-5.15 gki-common
           cd kernel-5.15
-
           ABI_FILE=$(ls ../gki-common/android/ | grep "abi_gki_aarch64" | head -n1 || true)
           if [ -n "$ABI_FILE" ]; then
-            echo "✅ Dùng ABI whitelist: $ABI_FILE"
             cp ../gki-common/android/$ABI_FILE abi_symbollist.raw
           else
-            echo "⚠️ Không tìm thấy ABI → tạo file rỗng"
             : > abi_symbollist.raw
           fi
 
-          # 🔹 Copy ABI tới nhiều path để tránh lỗi
+          # 🔹 Copy ABI tới tất cả path để tránh lỗi
           mkdir -p abi \
                   out/abi \
                   out/android/abi \
                   out/obj/KERNEL_OBJ/kernel-5.15 \
                   out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15
-
           cp abi_symbollist.raw abi/abi_symbollist.raw
           cp abi_symbollist.raw out/abi/abi_symbollist.raw
           cp abi_symbollist.raw out/android/abi/abi_symbollist.raw
           cp abi_symbollist.raw out/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
           cp abi_symbollist.raw out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
 
-          echo "📌 ABI whitelist đã xử lý:"
-          find out -name "abi_symbollist.raw" -ls || true
-
-          # 🔹 Build .config (non-interactive)
+          # build .config
           make O=out ARCH=arm64 "$DEFCONFIG"
-          yes "" | make O=out ARCH=arm64 olddefconfig || true
-          make O=out ARCH=arm64 olddefconfig </dev/null || true
+          make O=out ARCH=arm64 olddefconfig </dev/null
 
-          echo "✅ File .config đã sinh ra:"
+          echo "✅ .config sinh ra:"
           head -n 20 out/.config || true
 
-          # 🔹 Ép bật option kernel image (nếu cần)
-          if [ -f scripts/config ]; then
-            scripts/config --file out/.config -e BUILD_ARM64_KERNEL -e KERNEL_GZIP || true
-            make O=out ARCH=arm64 olddefconfig </dev/null || true
-          fi
+          # ép bật option kernel image
+          scripts/config --file out/.config -e BUILD_ARM64_KERNEL -e KERNEL_GZIP || true
+          make O=out ARCH=arm64 olddefconfig </dev/null
 
-          # 🔹 Build kernel + log
-          chmod +x -R ./scripts || true
-          ( make -j"$(nproc --all)" O=out ARCH=arm64 \
+          # build kernel
+          ( make -j$(nproc --all) O=out ARCH=arm64 \
               CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld \
               Image dtbs modules 2>&1 | tee build.log ) || exit ${PIPESTATUS[0]}
 
           # 🔹 Kiểm tra output
           if [ -f out/arch/arm64/boot/Image ]; then
-            echo "✅ Build thành công: tìm thấy out/arch/arm64/boot/Image"
+            echo "✅ Build thành công: out/arch/arm64/boot/Image"
           elif [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
-            echo "✅ Build thành công: tìm thấy out/arch/arm64/boot/Image.gz-dtb"
+            echo "✅ Build thành công: out/arch/arm64/boot/Image.gz-dtb"
           else
             echo "❌ Build xong nhưng không có Image!"
             exit 1
@@ -146,24 +139,24 @@ jobs:
             echo "⚠️ Không tìm thấy Image → thử lấy kernel tar.gz"
             IMG=$(ls kernel-5.15/out/arch/arm64/boot/*.tar.gz 2>/dev/null || true)
             if [ -n "$IMG" ]; then
+              echo "✅ Tìm thấy kernel tar.gz: $IMG"
               cp "$IMG" AnyKernel3/Image.tar.gz
             else
               echo "❌ Kernel không tạo ra Image hoặc tar.gz!"
               exit 1
             fi
           else
+            echo "✅ Tìm thấy kernel Image: $IMG"
             cp "$IMG" AnyKernel3/Image
           fi
 
-          # Copy dtb, dtbo nếu có
           (cd kernel-5.15/out/arch/arm64/boot && cp -r dtb* ../../../../AnyKernel3/ || true)
           (cd kernel-5.15/out/arch/arm64/boot && cp -r dtbo* ../../../../AnyKernel3/ || true)
 
-          # zip lại
           cd AnyKernel3
           zip -r ../Kernel-A06-KSU-SUSFS.zip ./*
 
-      - name: Upload artifacts
+      - name: Upload artifacts (config + zip + image/tar.gz + log + out)
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -174,3 +167,5 @@ jobs:
             kernel-5.15/out/arch/arm64/boot/*.tar.gz
             Kernel-A06-KSU-SUSFS.zip
             kernel-5.15/build.log
+            kernel-5.15/out/**/*.o
+            kernel-5.15/out/**/*.cmd
