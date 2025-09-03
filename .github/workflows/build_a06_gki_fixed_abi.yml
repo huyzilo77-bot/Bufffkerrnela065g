@@ -44,11 +44,12 @@ jobs:
           sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-16 100
           sudo update-alternatives --install /usr/bin/ld.lld ld.lld /usr/bin/lld-16 100
 
-      - name: Extract Samsung Kernel source
+      - name: Download Kernel Source (Release)
         run: |
-          set -eux
-          tar -xvf Kernel.tar.gz
-          tar -xvf Platform.tar.gz
+          wget -O kernel.tar "https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/kernel-5.15.tar"
+          mkdir kernel-5.15
+          tar -xf kernel.tar -C kernel-5.15 --strip-components=1
+          chmod +x -R kernel-5.15/scripts || true
 
       - name: Clone AnyKernel3 & SUSFS
         run: |
