@@ -1,111 +1,463 @@
-name: Build Samsung A06 Kernel (KSU Next + SUSFS)
+name: Kernel Build Process
+permissions:
+  contents: write
+  actions: write
 
 on:
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      use_make:
+        required: true
+        type: boolean
+      android_version:
+        required: true
+        type: string   # ví dụ: android13 / android14 / android15
+      kernel_version:
+        required: true
+        type: string   # ví dụ: 5.15 / 6.1 / 6.6
+      sub_level:
+        required: true
+        type: string   # ví dụ: 151 / 50 ...
+      os_patch_level:
+        required: true
+        type: string   # ví dụ: 2025-05
+      kernelsu_variant:
+        required: true
+        type: string   # KSU / NEXT / WKSU
+      kernelsu_branch:
+        required: true
+        type: string   # Stable / Dev / Other
+      kernelsu_branch_other:
+        required: false
+        type: string   # chỉ dùng khi kernelsu_branch = Other
+      revision:
+        required: false
+        type: string
 
 jobs:
-  build:
+  build-gki:
     runs-on: ubuntu-latest
     timeout-minutes: 150
 
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install base dependencies
+      - name: Maximize Build Space
+        uses: AdityaGarg8/remove-unwanted-software@v5
+        with:
+          remove-android: 'true'
+          remove-dotnet: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+          remove-docker-images: 'true'
+          remove-large-packages: 'true'
+          remove-swapfile: 'true'
+          verbose: 'true'
+
+      - name: Set CONFIG env (branch selector)
+        run: |
+          CONFIG="${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.sub_level }}"
+          echo "CONFIG=$CONFIG" >> $GITHUB_ENV
+          echo "CONFIG set to: $CONFIG"
+
+      - name: Install base dependencies + clang-16 + bazelisk
         run: |
           sudo apt update
-          sudo apt install -y git wget curl build-essential bc bison flex \
-            libssl-dev libelf-dev ccache unzip zip python3 python3-pip \
-            lz4 xz-utils zlib1g-dev device-tree-compiler \
-            libncurses-dev libxml2-utils xsltproc kmod cpio \
-            openjdk-17-jdk
+          sudo apt install -y \
+            git curl wget unzip zip xz-utils zstd \
+            build-essential bc bison flex \
+            libelf-dev libssl-dev libarchive-tools \
+            device-tree-compiler openjdk-17-jdk \
+            llvm-16 clang-16 lld-16 \
+            python3 python-is-python3 \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          # ép clang-16 làm mặc định
+          sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-16 100
+          sudo update-alternatives --install /usr/bin/ld.lld ld.lld /usr/bin/lld-16 100
 
-      - name: Setup Neutron-Clang Toolchain
+          # cài bazelisk (bazel wrapper) — cần cho GKI >= A14 khi dùng bazel
+          curl -L https://github.com/bazelbuild/bazelisk/releases/download/v1.19.0/bazelisk-linux-amd64 -o bazelisk
+          chmod +x bazelisk
+          sudo mv bazelisk /usr/local/bin/bazelisk
+
+      - name: Install repo tool
         run: |
-          mkdir -p $HOME/toolchains
-          if [ ! -d "$HOME/toolchains/neutron-clang" ]; then
-            echo "⬇️ Cloning Neutron-Clang Toolchain"
-            mkdir -p $HOME/toolchains/neutron-clang && cd $HOME/toolchains/neutron-clang
-            curl -LO "https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman"
-            chmod +x antman
-            ./antman -S
-            ./antman --patch=glibc
-          fi
-          echo "$HOME/toolchains/neutron-clang/bin" >> $GITHUB_PATH
+          mkdir -p $GITHUB_WORKSPACE/git-repo
+          curl -L https://storage.googleapis.com/git-repo-downloads/repo -o $GITHUB_WORKSPACE/git-repo/repo
+          chmod a+rx $GITHUB_WORKSPACE/git-repo/repo
+          echo "REPO=$GITHUB_WORKSPACE/git-repo/repo" >> $GITHUB_ENV
 
-      - name: Download Kernel Source
+      - name: Clone AnyKernel3 & SUSFS & kernel patches
         run: |
-          wget -O kernel.tar "https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/kernel-5.15.tar"
-          mkdir kernel-5.15
-          tar -xf kernel.tar -C kernel-5.15 --strip-components=1
+          ANYKERNEL_BRANCH="gki-2.0"
+          SUSFS_BRANCH="gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}"
+          echo "Using AnyKernel3 branch: $ANYKERNEL_BRANCH"
+          echo "Using SUSFS branch:     $SUSFS_BRANCH"
+          git clone https://github.com/WildKernels/AnyKernel3.git -b "$ANYKERNEL_BRANCH"
+          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b "$SUSFS_BRANCH"
+          git clone https://github.com/WildKernels/kernel_patches.git
 
-      - name: Clone utilities (AnyKernel3 & SUSFS)
-        run: |
-          git clone https://github.com/osm0sis/AnyKernel3.git AnyKernel3
-          git clone -b gki-android13-5.15 https://gitlab.com/simonpunk/susfs4ksu.git susfs
-
-      - name: Apply KernelSU-Next
-        run: |
-          cd kernel-5.15
-          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -
-
-      - name: Apply SUSFS patch
-        run: |
-          cd kernel-5.15
-          patch -p1 < ../susfs/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch || true
-          cp -r ../susfs/kernel_patches/fs/* fs/ || true
-          cp -r ../susfs/kernel_patches/include/linux/* include/linux/ || true
-
-      - name: Select defconfig + Build Kernel
+      - name: Initialize & Sync kernel source (GKI)
         shell: bash
         run: |
-          cd kernel-5.15
+          set -euo pipefail
+          mkdir -p "$CONFIG"
+          cd "$CONFIG"
 
-          # chọn defconfig
-          if [ -f arch/arm64/configs/a06x_defconfig ]; then
-            DEFCONFIG=a06x_defconfig
-          elif [ -f arch/arm64/configs/a06_defconfig ]; then
-            DEFCONFIG=a06_defconfig
-          else
-            echo "❌ Không tìm thấy defconfig!"
-            exit 1
+          # Nhánh GKI: common-<android_version>-<kernel_version>-<os_patch_level>
+          FORMATTED_BRANCH="${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.os_patch_level }}"
+
+          # init manifest
+          $REPO init --depth=1 -u https://android.googlesource.com/kernel/manifest \
+            -b common-${FORMATTED_BRANCH} --repo-rev=v2.16
+
+          # Nếu branch deprecated, chỉnh default.xml sang deprecated/<branch>
+          REMOTE_BRANCH=$(git ls-remote https://android.googlesource.com/kernel/common ${FORMATTED_BRANCH} || true)
+          DEFAULT_MANIFEST_PATH=.repo/manifests/default.xml
+          if echo "$REMOTE_BRANCH" | grep -q "deprecated"; then
+            echo "Found deprecated branch: ${FORMATTED_BRANCH}"
+            sed -i "s/\"${FORMATTED_BRANCH}\"/\"deprecated\/${FORMATTED_BRANCH}\"/g" "$DEFAULT_MANIFEST_PATH"
           fi
-          echo "DEFCONFIG=$DEFCONFIG"
 
-          # tạo config
-          make O=out ARCH=arm64 $DEFCONFIG
-          yes "" | make O=out ARCH=arm64 olddefconfig
+          $REPO --version
+          $REPO --trace sync -c -j"$(nproc --all)" --no-tags --fail-fast
 
-          # build kernel với Neutron-Clang
-          ( make -j$(nproc --all) O=out ARCH=arm64 \
-              CC=clang \
-              CROSS_COMPILE=aarch64-linux-gnu- \
-              CLANG_TRIPLE=aarch64-linux-gnu- \
-              LLVM=1 LLVM_IAS=1 \
-              LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
-              Image dtbs modules 2>&1 | tee build.log ) || exit ${PIPESTATUS[0]}
+          # Quyền thực thi scripts/tools để tránh Permission denied
+          chmod -R a+x common/scripts || true
+          chmod -R a+x common/tools   || true
+          [ -f tools/bazel ] && chmod +x tools/bazel || true
 
-      - name: Pack AnyKernel3 zip
+      - name: Fix < 6.6.50 include (Samsung fs hooks)
+        if: ${{ inputs.android_version == 'android15' && inputs.kernel_version == '6.6' }}
         run: |
-          IMG=$(ls kernel-5.15/out/arch/arm64/boot/Image* 2>/dev/null | head -n1 || true)
-          if [ -z "$IMG" ]; then
-            echo "❌ Không tìm thấy kernel Image!"
+          cd "$CONFIG/common"
+          if ! grep -qxF '#include <trace/hooks/fs.h>' ./fs/namespace.c; then
+            sed -i '/#include <trace\/hooks\/blk.h>/a #include <trace\/hooks\/fs.h>' ./fs/namespace.c
+          fi
+
+      - name: Determine KernelSU branch
+        run: |
+          case "${{ inputs.kernelsu_branch }}" in
+            "Stable")
+              echo "BRANCH=-" >> $GITHUB_ENV
+              ;;
+            "Dev")
+              if [[ "${{ inputs.kernelsu_variant }}" == "KSU" ]]; then
+                echo "BRANCH=-s main" >> $GITHUB_ENV
+              elif [[ "${{ inputs.kernelsu_variant }}" == "NEXT" ]]; then
+                echo "BRANCH=-s next" >> $GITHUB_ENV
+              elif [[ "${{ inputs.kernelsu_variant }}" == "WKSU" ]]; then
+                echo "BRANCH=-s wild" >> $GITHUB_ENV
+              fi
+              ;;
+            "Other")
+              if [[ -n "${{ inputs.kernelsu_branch_other }}" ]]; then
+                echo "BRANCH=-s ${{ inputs.kernelsu_branch_other }}" >> $GITHUB_ENV
+              else
+                echo "Error: kernelsu_branch is 'Other' but no custom branch provided" >&2
+                exit 1
+              fi
+              ;;
+          esac
+
+      - name: Add KernelSU (Official / Next / Wild)
+        run: |
+          cd "$CONFIG"
+          case "${{ inputs.kernelsu_variant }}" in
+            "WKSU")
+              echo "Adding WKSU..."
+              curl -LSs "https://raw.githubusercontent.com/WildKernels/Wild_KSU/wild/kernel/setup.sh" | bash ${{ env.BRANCH }}
+              ;;
+            "KSU")
+              echo "Adding KernelSU Official..."
+              curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash ${{ env.BRANCH }}
+              ;;
+            "NEXT")
+              echo "Adding KernelSU-Next..."
+              curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash ${{ env.BRANCH }}
+              ;;
+          esac
+
+      - name: Apply SUSFS patches (variant-aware)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$CONFIG"
+
+          echo "Copy SUSFS core patch to ./common"
+          cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch ./common/ || true
+          cd common
+          patch -p1 --forward < 50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch || true
+          cd ..
+          cp -r ../susfs4ksu/kernel_patches/fs/* ./common/fs/ || true
+          cp -r ../susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/ || true
+
+          case "${{ inputs.kernelsu_variant }}" in
+            "WKSU")
+              cd ./Wild_KSU
+              cp ../../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./
+              patch -p1 --forward < 10_enable_susfs_for_ksu.patch || true
+              cp ../../kernel_patches/wild/susfs_fix_patches/v1.5.9/fix_core_hook.c.patch ./
+              patch -p1 --forward -F 3 < fix_core_hook.c.patch || true
+              cp ../../kernel_patches/wild/susfs_fix_patches/v1.5.9/fix_rules.c.patch ./
+              patch -p1 --forward < fix_rules.c.patch || true
+              cp ../../kernel_patches/wild/susfs_fix_patches/v1.5.9/fix_sucompat.c.patch ./
+              patch -p1 --forward < fix_sucompat.c.patch || true
+              cp ../../kernel_patches/wild/susfs_fix_patches/v1.5.9/fix_kernel_compat.c.patch ./
+              patch -p1 --forward < fix_kernel_compat.c.patch || true
+              cd ..
+              ;;
+            "KSU")
+              cd ./KernelSU
+              cp ../../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./
+              patch -p1 --forward < 10_enable_susfs_for_ksu.patch || true
+              cd ..
+              ;;
+            "NEXT")
+              cd ./KernelSU-Next
+              cp ../../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./
+              patch -p1 --forward < 10_enable_susfs_for_ksu.patch || true
+
+              cp ../../kernel_patches/next/susfs_fix_patches/v1.5.9/fix_apk_sign.c.patch ./
+              patch -p1 --forward < fix_apk_sign.c.patch || true
+              cp ../../kernel_patches/next/susfs_fix_patches/v1.5.9/fix_core_hook.c.patch ./
+              patch -p1 --forward -F 3 < fix_core_hook.c.patch || true
+              cp ../../kernel_patches/next/susfs_fix_patches/v1.5.9/fix_rules.c.patch ./
+              patch -p1 --forward < fix_rules.c.patch || true
+              cp ../../kernel_patches/next/susfs_fix_patches/v1.5.9/fix_sucompat.c.patch ./
+              patch -p1 --forward < fix_sucompat.c.patch || true
+              cp ../../kernel_patches/next/susfs_fix_patches/v1.5.9/fix_kernel_compat.c.patch ./
+              patch -p1 --forward < fix_kernel_compat.c.patch || true
+              cd ..
+              ;;
+          esac
+
+      - name: Compute KernelSU version (KSUVER)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$CONFIG"
+          BASE_VERSION=10200
+          case "${{ inputs.kernelsu_variant }}" in
+            "WKSU")   cd ./Wild_KSU/kernel ;;
+            "KSU")    cd ./KernelSU/kernel ;;
+            "NEXT")   cd ./KernelSU-Next/kernel ;;
+          esac
+          KSU_VERSION=$(expr $(git rev-list --count HEAD) + $BASE_VERSION)
+          echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
+          echo "KSUVER=$KSU_VERSION"
+
+      - name: Apply hooks + hide patches
+        run: |
+          cd "$CONFIG/common"
+          # hooks
+          if [ "${{ inputs.kernelsu_variant }}" = "NEXT" ]; then
+            cp ../../kernel_patches/next/scope_min_manual_hooks_v1.4.patch ./
+            patch -p1 --forward -F 3 < scope_min_manual_hooks_v1.4.patch || true
+          elif [ "${{ inputs.kernelsu_variant }}" = "WKSU" ]; then
+            cp ../../kernel_patches/wild/hooks/scope_min_manual_hooks_v1.4.patch ./
+            patch -p1 --forward -F 3 < scope_min_manual_hooks_v1.4.patch || true
+          fi
+          # hide stuff
+          cp ../../kernel_patches/69_hide_stuff.patch ./
+          patch -p1 --forward -F 3 < 69_hide_stuff.patch || true
+
+      - name: Samsung 6.6 KDP extras (WiFi/BT)
+        if: ${{ inputs.kernel_version == '6.6' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          SYMBOL_LIST="$CONFIG/common/android/abi_gki_aarch64_galaxy"
+          echo "kdp_set_cred_non_rcu" >> "$SYMBOL_LIST"
+          echo "kdp_usecount_dec_and_test" >> "$SYMBOL_LIST"
+          echo "kdp_usecount_inc" >> "$SYMBOL_LIST"
+          cd "$CONFIG/common"
+          PATCH="../../kernel_patches/samsung/min_kdp/add-min_kdp-symbols.patch"
+          patch -p1 --forward < "$PATCH" || true
+          cd drivers
+          cp "../../../kernel_patches/samsung/min_kdp/min_kdp.c" ./min_kdp.c
+          echo "obj-y += min_kdp.o" >> Makefile || true
+
+      - name: Append Kernel configs (KSU/SUSFS/NET/TMPFS/BBR)
+        run: |
+          cd "$CONFIG"
+          DEFCONF=./common/arch/arm64/configs/gki_defconfig
+          {
+            echo "CONFIG_KSU=y"
+            # KSU variants toggle
+            if [ "${{ inputs.kernelsu_variant }}" = "NEXT" ] || [ "${{ inputs.kernelsu_variant }}" = "WKSU" ]; then
+              echo "CONFIG_KSU_KPROBES_HOOK=n"
+            fi
+            # TMPFS
+            echo "CONFIG_TMPFS_XATTR=y"
+            echo "CONFIG_TMPFS_POSIX_ACL=y"
+            # Net TTL/HL
+            echo "CONFIG_IP_NF_TARGET_TTL=y"
+            echo "CONFIG_IP6_NF_TARGET_HL=y"
+            echo "CONFIG_IP6_NF_MATCH_HL=y"
+            # BBR
+            echo "CONFIG_TCP_CONG_ADVANCED=y"
+            echo "CONFIG_TCP_CONG_BBR=y"
+            echo "CONFIG_NET_SCH_FQ=y"
+            echo "CONFIG_TCP_CONG_BIC=n"
+            echo "CONFIG_TCP_CONG_WESTWOOD=n"
+            echo "CONFIG_TCP_CONG_HTCP=n"
+            # SUSFS
+            echo "CONFIG_KSU_SUSFS=y"
+            echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y"
+            echo "CONFIG_KSU_SUSFS_SUS_PATH=y"
+            echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y"
+            echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y"
+            echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y"
+            echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y"
+            echo "CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n"
+            echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y"
+            echo "CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y"
+            echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y"
+            echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y"
+            echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y"
+            echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y"
+            echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y"
+          } >> "$DEFCONF"
+
+          if [ "${{ inputs.kernelsu_variant }}" = "NEXT" ] || [ "${{ inputs.kernelsu_variant }}" = "WKSU" ]; then
+            echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> "$DEFCONF"
+          else
+            echo "CONFIG_KSU_SUSFS_SUS_SU=y" >> "$DEFCONF"
+          fi
+
+          # bỏ check_defconfig để tránh fail CI
+          sed -i 's/check_defconfig//' ./common/build.config.gki || true
+
+      - name: Change Kernel Name (Bazel path)
+        if: ${{ inputs.use_make == false }}
+        run: |
+          cd "$CONFIG"
+          if [ -f "build/build.sh" ]; then
+            # sửa setlocalversion (đúng path)
+            perl -pi -e 's/-dirty//' ./common/scripts/setlocalversion
+            perl -0777 -pi -e 's/(echo "\$res")(?!.*echo "\$res")/echo "\$res-${{ inputs.kernelsu_variant }}:v\$ENV{KSUVER}-SUSFS:v1.5.9-Wild"/s' ./common/scripts/setlocalversion
+            perl -pi -e 's{UTS_VERSION="\$\(echo \$UTS_VERSION \$CONFIG_FLAGS \$TIMESTAMP \| cut -b -\$UTS_LEN\)"}{UTS_VERSION="#1 SMP PREEMPT Sun Apr 20 04:20:00 UTC 2025"}' ./common/scripts/mkcompile_h
+          else
+            # Bazel tree
+            perl -pi -e 's/-maybe-dirty//g' ./build/kernel/kleaf/impl/stamp.bzl
+            echo "CONFIG_LOCALVERSION=\"-${{ inputs.kernelsu_variant }}:$KSUVER-SUSFS:v1.5.9-Wild\"" >> ./common/arch/arm64/configs/gki_defconfig
+            perl -pi -e 's/build-timestamp = \$\(or \$\(KBUILD_BUILD_TIMESTAMP\), \$\(build-timestamp-auto\)\)/build-timestamp = "Sun Apr 20 04:20:00 UTC 2025"/' ./common/init/Makefile
+            # GKI Bazel: bỏ protected exports nếu cần
+            rm -rf ./common/android/abi_gki_protected_exports_* || true
+            perl -pi -e 's/^\s*"protected_exports_list"\s*:\s*"android\/abi_gki_protected_exports_aarch64",\s*$//;' ./common/BUILD.bazel || true
+          fi
+
+      - name: Build (Bazel / build.sh)
+        if: ${{ inputs.use_make == false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$CONFIG"
+          if [ -f "build/build.sh" ]; then
+            LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh 2>&1 | tee build.log
+          else
+            chmod +x tools/bazel || true
+            tools/bazel build --config=fast --lto=thin //common:kernel_aarch64_dist 2>&1 | tee build.log
+          fi
+
+      - name: Change Kernel Name (Make path)
+        if: ${{ inputs.use_make == true }}
+        run: |
+          cd "$CONFIG"
+          perl -pi -e 's/-dirty//' ./common/scripts/setlocalversion
+          # build.sh tồn tại vẫn sửa header cho build bằng make
+          if [ -f "build/build.sh" ]; then
+            perl -0777 -pi -e 's/(echo "\$res")(?!.*echo "\$res")/echo "\$res-${{ inputs.kernelsu_variant }}:v\$ENV{KSUVER}-SUSFS:v1.5.9-Wild"/s' ./common/scripts/setlocalversion
+            perl -pi -e 's{UTS_VERSION="\$\(echo \$UTS_VERSION \$CONFIG_FLAGS \$TIMESTAMP \| cut -b -\$UTS_LEN\)"}{UTS_VERSION="#1 SMP PREEMPT Sun Apr 20 04:20:00 UTC 2025"}' ./common/scripts/mkcompile_h
+          else
+            # chưa dùng bazel -> vẫn đảm bảo localversion
+            echo "CONFIG_LOCALVERSION=\"-${{ inputs.kernelsu_variant }}:$KSUVER-SUSFS:v1.5.9-Wild\"" >> ./common/arch/arm64/configs/gki_defconfig
+            perl -pi -e 's/build-timestamp = \$\(or \$\(KBUILD_BUILD_TIMESTAMP\), \$\(build-timestamp-auto\)\)/build-timestamp = "Sun Apr 20 04:20:00 UTC 2025"/' ./common/init/Makefile
+          fi
+
+      - name: Add build-opts for Make
+        if: ${{ inputs.use_make == true }}
+        run: |
+          cd "$CONFIG"
+          {
+            echo "CONFIG_LTO_CLANG_THIN=y"
+            echo "CONFIG_LTO_CLANG=y"
+            echo "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y"
+            echo "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE_O3=n"
+          } >> ./common/arch/arm64/configs/gki_defconfig
+
+      - name: Build (Make path)
+        if: ${{ inputs.use_make == true }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$CONFIG/common"
+
+          # Generate config non-interactive
+          make O=../out ARCH=arm64 gki_defconfig
+          make O=../out ARCH=arm64 olddefconfig </dev/null
+
+          # ABI whitelist → tránh lỗi thiếu abi_symbollist.raw
+          ABI=$(ls ./android/ | grep -E "^abi_gki_aarch64_" | head -n1 || true)
+          mkdir -p ../out/abi ../out/android/abi ../out/obj/KERNEL_OBJ/${{ inputs.kernel_version }}
+          if [ -n "$ABI" ]; then
+            cp "./android/$ABI" ../out/abi/abi_symbollist.raw
+            cp ../out/abi/abi_symbollist.raw ../out/android/abi/abi_symbollist.raw
+            cp ../out/abi/abi_symbollist.raw ../out/obj/KERNEL_OBJ/${{ inputs.kernel_version }}/abi_symbollist.raw
+          else
+            : > ../out/abi/abi_symbollist.raw
+          fi
+
+          # Build kernel (ghi log và giữ exit code chuẩn)
+          ( make -j"$(nproc --all)" O=../out ARCH=arm64 \
+              LLVM=1 CC=clang LD=ld.lld \
+              CROSS_COMPILE=aarch64-linux-gnu- \
+              Image dtbs modules 2>&1 | tee ../build.log ); test ${PIPESTATUS[0]} -eq 0
+
+          # Kiểm tra kernel output
+          if [ -f ../out/arch/arm64/boot/Image ]; then
+            echo "✅ Found Image"
+          elif [ -f ../out/arch/arm64/boot/Image.gz-dtb ]; then
+            echo "✅ Found Image.gz-dtb"
+          else
+            echo "❌ No Image produced!"
             exit 1
           fi
-          cp "$IMG" AnyKernel3/Image
-          (cd kernel-5.15/out/arch/arm64/boot && cp -r dtb* ../../../../AnyKernel3/ || true)
-          (cd kernel-5.15/out/arch/arm64/boot && cp -r dtbo* ../../../../AnyKernel3/ || true)
-          cd AnyKernel3
-          zip -r ../Kernel-A06-KSU-SUSFS.zip ./*
 
-      - name: Upload artifacts
+      - name: Pack AnyKernel3 (Make path)  # Với Bazel, upload dist thay vì pack AnyKernel3
+        if: ${{ inputs.use_make == true }}
+        run: |
+          IMG=$(ls $CONFIG/out/arch/arm64/boot/Image* 2>/dev/null || true)
+          if [ -z "$IMG" ]; then
+            echo "⚠️ No Image*; try tarballs from dist"
+            IMG=$(ls $CONFIG/out/arch/arm64/boot/*.tar.gz 2>/dev/null || true)
+            if [ -n "$IMG" ]; then
+              cp "$IMG" AnyKernel3/Image.tar.gz
+            else
+              echo "❌ Cannot find kernel Image or tarball!"
+              exit 1
+            fi
+          else
+            cp "$IMG" AnyKernel3/Image
+          fi
+          (cd $CONFIG/out/arch/arm64/boot && cp -r dtb* ../../../../AnyKernel3/ || true)
+          (cd $CONFIG/out/arch/arm64/boot && cp -r dtbo* ../../../../AnyKernel3/ || true)
+          cd AnyKernel3
+          zip -r ../Kernel-GKI-KSU-SUSFS.zip ./*
+
+      - name: Upload Artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: Kernel-Outputs
           path: |
-            kernel-5.15/out/.config
-            kernel-5.15/out/arch/arm64/boot/Image*
-            Kernel-A06-KSU-SUSFS.zip
-            kernel-5.15/build.log
+            ${{ env.CONFIG }}/build.log
+            ${{ env.CONFIG }}/out/.config
+            ${{ env.CONFIG }}/out/arch/arm64/boot/Image*
+            ${{ env.CONFIG }}/out/arch/arm64/boot/*.tar.gz
+            Kernel-GKI-KSU-SUSFS.zip
+            ${{ env.CONFIG }}/out/**/*.o
+            ${{ env.CONFIG }}/out/**/*.cmd
+            ${{ env.CONFIG }}/out/**/dist/**
