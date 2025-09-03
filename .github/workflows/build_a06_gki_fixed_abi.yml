@@ -113,9 +113,8 @@ jobs:
           fi
 
           # copy ABI vào nơi cần thiết
-          cp abi_symbollist.raw kernel-5.15/abi_symbollist.raw
-          mkdir -p out/obj/KERNEL_OBJ/kernel-5.15
-          cp abi_symbollist.raw out/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
+          mkdir -p ../out/obj/KERNEL_OBJ/kernel-5.15
+          cp abi_symbollist.raw ../out/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
 
           # config
           make O=out ARCH=arm64 $DEFCONFIG
@@ -123,7 +122,7 @@ jobs:
           ./scripts/config --file out/.config -e KSU -e KSU_SUSFS || true
           ./scripts/config --file out/.config -d KSU_KPROBES_HOOK || true
           make O=out ARCH=arm64 olddefconfig
-
+          
       - name: Build Kernel
         run: |
           set -eux
