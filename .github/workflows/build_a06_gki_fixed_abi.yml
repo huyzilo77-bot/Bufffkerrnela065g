@@ -59,16 +59,18 @@ jobs:
           echo "📂 Sau khi giải nén Kernel.tar.gz:"
           ls -la
 
-          # Tìm thư mục kernel-5.15 thật sự
-          SRC_DIR=$(find . -type d -name "kernel-5.15" | head -n 1 || true)
-          echo "✅ SRC_DIR=$SRC_DIR"
-
-          if [ -z "$SRC_DIR" ]; then
-            echo "❌ Không tìm thấy kernel-5.15 sau khi giải nén!"
-            exit 1
+          # Kiểm tra thư mục kernel-5.15 đã tồn tại chưa
+          if [ -d kernel-5.15 ]; then
+            echo "✅ Đã tìm thấy kernel-5.15"
+          else
+            SRC_DIR=$(find . -maxdepth 1 -type d -name "SM-A066B*" | head -n 1 || true)
+            if [ -z "$SRC_DIR" ]; then
+              echo "❌ Không tìm thấy thư mục source sau khi giải nén!"
+              exit 1
+            fi
+            mv "$SRC_DIR" kernel-5.15
           fi
 
-          mv "$SRC_DIR" ./kernel-5.15
           chmod +x -R kernel-5.15
 
           echo "📂 Cấu trúc trong kernel-5.15:"
