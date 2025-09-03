@@ -51,7 +51,7 @@ jobs:
           find drivers -name "Kconfig*" -type f -print0 | xargs -0 sed -i "s/’/'/g; s/‘/'/g"
           sed -i 's/^[[:space:]]*#/#/' drivers/power/supply/Kconfig || true
 
-      - name: Select defconfig + Fetch ABI + Disable ABI + Build Kernel
+       - name: Select defconfig + Fetch ABI + Disable ABI check + Build Kernel
         shell: bash
         run: |
           set -euo pipefail
@@ -75,20 +75,18 @@ jobs:
 
           ABI_FILE=$(ls ../gki-common/android/ | grep "abi_gki_aarch64_mtk" | head -n1 || true)
           if [ -n "$ABI_FILE" ]; then
-            echo "✅ Dùng ABI whitelist MTK: $ABI_FILE"
             cp ../gki-common/android/$ABI_FILE abi_symbollist.raw
           else
             ABI_FILE=$(ls ../gki-common/android/ | grep "abi_gki_aarch64_generic" | head -n1 || true)
             if [ -n "$ABI_FILE" ]; then
-              echo "✅ Dùng ABI whitelist generic: $ABI_FILE"
               cp ../gki-common/android/$ABI_FILE abi_symbollist.raw
             else
-              echo "⚠️ Không có ABI phù hợp → tạo file rỗng"
+              echo "⚠️ Không có ABI → tạo file rỗng"
               : > abi_symbollist.raw
             fi
           fi
 
-          # 🔹 Copy ABI tới nhiều path
+          # 🔹 Copy ABI vào nhiều path (bao gồm path hard-code DPI)
           mkdir -p abi out out/abi out/android/abi out/obj/KERNEL_OBJ/kernel-5.15
           cp abi_symbollist.raw abi/abi_symbollist.raw
           cp abi_symbollist.raw out/abi/abi_symbollist.raw
@@ -97,19 +95,17 @@ jobs:
           mkdir -p out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15
           cp abi_symbollist.raw out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
 
-          # ✅ Giả lập path hard-code Samsung/MTK
-          FAKE_PATH="/home/dpi/qb5_8814/workspace/P4_1716/android/out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15"
-          sudo mkdir -p "$FAKE_PATH"
-          sudo cp abi_symbollist.raw "$FAKE_PATH/abi_symbollist.raw"
+          # 🔹 Fake path /home/dpi/... để tránh lỗi
+          sudo mkdir -p /home/dpi/qb5_8814/workspace/P4_1716/android/out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15
+          sudo cp abi_symbollist.raw /home/dpi/qb5_8814/workspace/P4_1716/android/out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
 
-          # 🔹 Disable ABI check (fallback)
-          sed -i 's/^CONFIG_ANDROID_ABI_SYMBOLS.*/# CONFIG_ANDROID_ABI_SYMBOLS is not set/' arch/arm64/configs/*defconfig || true
-          sed -i 's|include/generated/autoksyms.h|/dev/null|g' Makefile || true
+          # 🔹 Disable ABI check
           sed -i 's/abi_symbollist.raw/\/dev\/null/g' Makefile || true
-          sed -i 's/abi_symbollist/\/dev\/null/g' Makefile || true
+          sed -i 's/abi_symbollist.raw/\/dev\/null/g' scripts/Makefile.lib || true
+          sed -i 's/^CONFIG_ANDROID_ABI_SYMBOLS.*/# CONFIG_ANDROID_ABI_SYMBOLS is not set/' arch/arm64/configs/*defconfig || true
 
           echo "📌 ABI whitelist đã xử lý:"
-          find out -name "abi_symbollist.raw" -ls || true
+          find . -name "abi_symbollist.raw" -ls || true
 
           # 🔹 Build kernel + log
           chmod +x -R ./scripts
@@ -118,6 +114,7 @@ jobs:
           ( make -j"$(nproc --all)" O=out ARCH=arm64 \
               CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld 2>&1 | tee build.log ) \
               || exit ${PIPESTATUS[0]}
+      
 
       - name: Pack AnyKernel3 zip
         run: |
