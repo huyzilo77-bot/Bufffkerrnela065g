@@ -48,8 +48,12 @@ jobs:
         run: |
           wget -O source.zip "https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/A066B-5G.zip"
           unzip -q source.zip
-          # Tìm đúng thư mục sau khi giải nén (Samsung thường đặt tên dài)
-          SRC_DIR=$(find . -maxdepth 1 -type d -name "SM-A066B_*" | head -n 1)
+          echo "📂 Danh sách sau khi giải nén:"
+          ls -la
+
+          # lấy thư mục con chính
+          SRC_DIR=$(find . -maxdepth 1 -type d ! -name "." | head -n 1)
+          echo "✅ SRC_DIR=$SRC_DIR"
           mv "$SRC_DIR" kernel-5.15
           chmod +x -R kernel-5.15
 
