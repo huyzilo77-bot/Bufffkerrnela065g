@@ -170,8 +170,10 @@ jobs:
       - name: Pack AnyKernel3 zip
         run: |
           set -eux
-          DIST=kernel-5.15/out/arch/arm64/boot
+          DIST=out/target/product/a06x/obj/KERNEL_OBJ
           IMG=""
+
+          # Ưu tiên thứ tự file kernel
           if [ -f "$DIST/Image.lz4" ]; then
             IMG="$DIST/Image.lz4"
           elif [ -f "$DIST/Image.gz-dtb" ]; then
@@ -184,6 +186,7 @@ jobs:
 
           if [ -z "$IMG" ]; then
             echo "❌ Không tìm thấy kernel Image trong $DIST"
+            ls -la $DIST || true
             exit 1
           fi
 
