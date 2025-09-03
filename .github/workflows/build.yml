@@ -94,7 +94,12 @@ jobs:
           fi
 
           # 🔹 Copy ABI tới nhiều path để tránh lỗi
-          mkdir -p abi out out/abi out/android/abi out/obj/KERNEL_OBJ/kernel-5.15 out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15
+          mkdir -p abi \
+                  out/abi \
+                  out/android/abi \
+                  out/obj/KERNEL_OBJ/kernel-5.15 \
+                  out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15
+
           cp abi_symbollist.raw abi/abi_symbollist.raw
           cp abi_symbollist.raw out/abi/abi_symbollist.raw
           cp abi_symbollist.raw out/android/abi/abi_symbollist.raw
@@ -112,7 +117,7 @@ jobs:
           echo "✅ File .config đã sinh ra:"
           head -n 20 out/.config || true
 
-          # 🔹 Ép bật option image nếu cần
+          # 🔹 Ép bật option kernel image (nếu cần)
           if [ -f scripts/config ]; then
             scripts/config --file out/.config -e BUILD_ARM64_KERNEL -e KERNEL_GZIP || true
             make O=out ARCH=arm64 olddefconfig </dev/null || true
