@@ -1,4 +1,4 @@
-name: Build Samsung A06 GKI 5.15 (KernelSU-Next + SUSFS)
+name: Build Samsung A06 5G Kernel 5.15 (KSU + SUSFS)
 
 on:
   workflow_dispatch:
@@ -24,7 +24,7 @@ jobs:
           remove-swapfile: true
           verbose: true
 
-      - name: Install build deps & toolchains
+      - name: Install deps & toolchains
         run: |
           set -eux
           sudo apt update
@@ -35,7 +35,7 @@ jobs:
             git curl wget unzip zip xz-utils zstd \
             build-essential bc bison flex \
             libelf-dev libssl-dev libarchive-tools \
-            device-tree-compiler lz4 \
+            device-tree-compiler lz4 cpio rsync \
             llvm-16 clang-16 lld-16 \
             python3 python-is-python3 \
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
@@ -44,12 +44,12 @@ jobs:
           sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-16 100
           sudo update-alternatives --install /usr/bin/ld.lld ld.lld /usr/bin/lld-16 100
 
-      - name: Download Kernel Source (Release)
+      - name: Download Kernel Source
         run: |
-          wget -O kernel.tar "https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/kernel-5.15.tar"
+          wget -O kernel_src.tar "https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/kernel-5.15.tar"
           mkdir kernel-5.15
-          tar -xf kernel.tar -C kernel-5.15 --strip-components=1
-          chmod +x -R kernel-5.15/scripts || true
+          tar -xf kernel_src.tar -C kernel-5.15 --strip-components=1
+          chmod +x -R kernel-5.15 || true
 
       - name: Clone AnyKernel3 & SUSFS
         run: |
@@ -59,7 +59,8 @@ jobs:
       - name: Apply KernelSU-Next
         run: |
           cd kernel-5.15
-          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s -- -s next
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" \
+            | bash -s -- -s next
 
       - name: Apply SUSFS patches
         run: |
@@ -68,61 +69,44 @@ jobs:
           cp -r ../susfs/kernel_patches/fs/* fs/ || true
           cp -r ../susfs/kernel_patches/include/linux/* include/linux/ || true
 
-      - name: Fix Kconfig issues
+      - name: Fix Kconfig encoding
         run: |
           cd kernel-5.15
-          find drivers -name "Kconfig*" -type f -print0 | xargs -0 sed -i "s/’/'/g; s/‘/'/g"
-          find drivers -name "Kconfig*" -type f -print0 | xargs -0 perl -i -pe 's/\x{00A0}/ /g; s/\x{FEFF}//g; s/\r$//'
-          sed -i 's/^[[:space:]]*#/#/' drivers/power/supply/Kconfig || true
+          find drivers -name "Kconfig*" -type f -print0 | \
+            xargs -0 sed -i "s/’/'/g; s/‘/'/g"
+          find drivers -name "Kconfig*" -type f -print0 | \
+            xargs -0 perl -i -pe 's/\x{00A0}/ /g; s/\x{FEFF}//g; s/\r$//'
 
       - name: Select defconfig & fetch ABI
         run: |
           set -eux
           cd kernel-5.15
 
-          # chọn defconfig
           if [ -f arch/arm64/configs/a06x_00_defconfig ]; then
             DEFCONFIG=a06x_00_defconfig
           elif [ -f arch/arm64/configs/a06x_defconfig ]; then
             DEFCONFIG=a06x_defconfig
-          elif [ -f arch/arm64/configs/a06_defconfig ]; then
-            DEFCONFIG=a06_defconfig
           else
-            echo "⚠️ Không tìm thấy defconfig, fallback sang gki_defconfig"
             DEFCONFIG=gki_defconfig
           fi
           echo "✅ DEFCONFIG=$DEFCONFIG"
 
-          # clone ABI list
-          cd ..
           git clone --depth=1 https://android.googlesource.com/kernel/common -b android13-5.15 gki-common
-          cd kernel-5.15
+          ABI=$(ls gki-common/android/ | grep -E "abi_gki_aarch64_" | head -n1 || true)
 
-          ABI_FILE=""
-          if ls ../gki-common/android/ | grep -q "abi_gki_aarch64_mtk"; then
-            ABI_FILE=$(ls ../gki-common/android/ | grep "abi_gki_aarch64_mtk" | head -n1)
-          elif ls ../gki-common/android/ | grep -q "abi_gki_aarch64_generic"; then
-            ABI_FILE=$(ls ../gki-common/android/ | grep "abi_gki_aarch64_generic" | head -n1)
-          fi
-
-          if [ -n "${ABI_FILE:-}" ]; then
-            cp "../gki-common/android/$ABI_FILE" abi_symbollist.raw
+          mkdir -p out
+          if [ -n "$ABI" ]; then
+            cp "gki-common/android/$ABI" out/abi_symbollist.raw
           else
-            echo "⚠️ Không tìm thấy ABI, tạo file rỗng"
-            : > abi_symbollist.raw
+            echo "" > out/abi_symbollist.raw
           fi
 
-          # copy ABI vào nơi cần thiết
-          mkdir -p ../out/obj/KERNEL_OBJ/kernel-5.15
-          cp abi_symbollist.raw ../out/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
-
-          # config
           make O=out ARCH=arm64 $DEFCONFIG
           make O=out ARCH=arm64 olddefconfig
           ./scripts/config --file out/.config -e KSU -e KSU_SUSFS || true
           ./scripts/config --file out/.config -d KSU_KPROBES_HOOK || true
           make O=out ARCH=arm64 olddefconfig
-          
+
       - name: Build Kernel
         run: |
           set -eux
@@ -130,7 +114,7 @@ jobs:
           ( make -j$(nproc --all) O=out ARCH=arm64 \
             CC=clang CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
             LD=ld.lld \
-            Image Image.gz Image.gz-dtb dtbs modules 2>&1 | tee build.log )
+            Image.gz-dtb dtbs modules 2>&1 | tee build.log )
           test ${PIPESTATUS[0]} -eq 0
           ls -la out/arch/arm64/boot || true
 
@@ -148,7 +132,7 @@ jobs:
           fi
 
           if [ -z "$IMG" ]; then
-            echo "❌ Không tìm thấy kernel Image!"
+            echo "❌ Kernel Image not found!"
             exit 1
           fi
 
@@ -157,7 +141,33 @@ jobs:
           (cd $OUTDIR && cp -r dtbo* ../../../../AnyKernel3/ || true)
 
           cd AnyKernel3
-          zip -r ../Kernel-A06-5.15.151-KSU-SUSFS.zip ./*
+          zip -r ../Kernel-A06-5.15-KSU-SUSFS.zip ./*
+
+      - name: Patch init_boot.img
+        run: |
+          set -eux
+          if [ ! -f init_boot.img.lz4 ]; then
+            echo "⚠️ Thiếu file init_boot.img.lz4 trong repo để patch"
+            exit 0
+          fi
+
+          lz4 -d init_boot.img.lz4 init_boot.img
+
+          git clone https://github.com/osm0sis/Android-Image-Kitchen.git AIK
+          cd AIK
+          ./unpackimg.sh ../init_boot.img
+
+          OUTDIR=../kernel-5.15/out/arch/arm64/boot
+          if [ -f "$OUTDIR/Image.gz-dtb" ]; then
+            cp "$OUTDIR/Image.gz-dtb" split_img/boot.img-kernel
+          elif [ -f "$OUTDIR/Image.gz" ]; then
+            cp "$OUTDIR/Image.gz" split_img/boot.img-kernel
+          elif [ -f "$OUTDIR/Image" ]; then
+            cp "$OUTDIR/Image" split_img/boot.img-kernel
+          fi
+
+          ./repackimg.sh
+          mv image-new.img ../init_boot_patched.img
 
       - name: Upload artifacts
         if: always()
@@ -168,4 +178,5 @@ jobs:
             kernel-5.15/build.log
             kernel-5.15/out/.config
             kernel-5.15/out/arch/arm64/boot/*
-            Kernel-A06-5.15.151-KSU-SUSFS.zip
+            Kernel-A06-5.15-KSU-SUSFS.zip
+            init_boot_patched.img
