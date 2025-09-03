@@ -180,7 +180,7 @@ jobs:
       - name: Pack AnyKernel3 zip
         run: |
           set -eux
-          DIST=kernel-5.15/dist
+          DIST=kernel-5.15/out/arch/arm64/boot
           IMG=""
           if [ -f "$DIST/Image.lz4" ]; then
             IMG="$DIST/Image.lz4"
