@@ -135,16 +135,16 @@ jobs:
           echo "Using DEFCONFIG=$DEFCONFIG"
 
           # chạy build.sh
-if [ -f ./kernel/build/kernel/build.sh ]; then
-  BUILD_CONFIG=arch/arm64/configs/$DEFCONFIG \
-  ./kernel/build/kernel/build.sh -j$(nproc --all) 2>&1 | tee ../build.log
-elif [ -f ./kernel-5.15/build.sh ]; then
-  BUILD_CONFIG=arch/arm64/configs/$DEFCONFIG \
-  ./kernel-5.15/build.sh -j$(nproc --all) 2>&1 | tee ../build.log
-else
-  echo "❌ Không tìm thấy build.sh"
-  exit 1
-fi
+          if [ -f ./kernel/build/kernel/build.sh ]; then
+            BUILD_CONFIG=arch/arm64/configs/$DEFCONFIG \
+            ./kernel/build/kernel/build.sh -j$(nproc --all) 2>&1 | tee ../build.log
+          elif [ -f ./kernel-5.15/build.sh ]; then
+            BUILD_CONFIG=arch/arm64/configs/$DEFCONFIG \
+            ./kernel-5.15/build.sh -j$(nproc --all) 2>&1 | tee ../build.log
+          else
+            echo "❌ Không tìm thấy build.sh"
+            exit 1
+          fi
 
       - name: Pack AnyKernel3 zip
         run: |
@@ -208,5 +208,5 @@ fi
             kernel-5.15/build.log
             kernel-5.15/out/.config
             kernel-5.15/out/arch/arm64/boot/*
-            Kernel-A06-5.15-KSU-SUSFS.zip
+            Kernel-A06-5.15.151-KSU-SUSFS.zip
             init_boot_patched.img
