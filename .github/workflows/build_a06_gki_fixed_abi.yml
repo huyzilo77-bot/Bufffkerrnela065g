@@ -44,12 +44,14 @@ jobs:
           sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-16 100
           sudo update-alternatives --install /usr/bin/ld.lld ld.lld /usr/bin/lld-16 100
 
-      - name: Download Kernel Source
+      - name: Download Kernel Source (Samsung A06 Release)
         run: |
-          wget -O kernel_src.tar "https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/kernel-5.15.tar"
-          mkdir kernel-5.15
-          tar -xf kernel_src.tar -C kernel-5.15 --strip-components=1
-          chmod +x -R kernel-5.15 || true
+          wget -O source.zip "https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/A066B-5G.zip"
+          unzip -q source.zip
+         # Tìm đúng thư mục sau khi giải nén (Samsung thường đặt tên dài)
+         SRC_DIR=$(find . -maxdepth 1 -type d -name "SM-A066B_*" | head -n 1)
+         mv "$SRC_DIR" kernel-5.15
+         chmod +x -R kernel-5.15
 
       - name: Clone AnyKernel3 & SUSFS
         run: |
