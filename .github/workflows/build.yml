@@ -6,36 +6,38 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 150
 
     steps:
-      # ------------------------------------------------------------------
       - name: Checkout repo
         uses: actions/checkout@v4
-      # ------------------------------------------------------------------
 
-      - name: Install dependencies (the same as ravindu64 tutorial)
+      - name: Install base dependencies
         run: |
           sudo apt update
-          sudo apt install -y git device-tree-compiler lz4 xz-utils zlib1g-dev \
-            openjdk-17-jdk gcc g++ python3 python-is-python3 p7zip-full \
-            android-sdk-libsparse-utils erofs-utils default-jdk git gnupg \
-            flex bison gperf build-essential zip curl libc6-dev libncurses-dev \
-            libx11-dev libreadline-dev libgl1 libgl1-mesa-dev python3 make sudo \
-            gcc g++ bc grep tofrodos python3-markdown libxml2-utils xsltproc \
-            libtinfo6 make repo cpio kmod openssl libelf-dev pahole libssl-dev \
-            libarchive-tools zstd rsync --fix-missing
-          # Fix libtinfo for Ubuntu
-          wget http://security.ubuntu.com/ubuntu/pool/universe/n/ncurses/libtinfo5_6.3-2ubuntu0.1_amd64.deb
-          sudo dpkg -i libtinfo5_6.3-2ubuntu0.1_amd64.deb
-      # ------------------------------------------------------------------
+          sudo apt install -y git wget curl build-essential bc bison flex \
+            libssl-dev libelf-dev ccache unzip zip python3 python3-pip \
+            lz4 xz-utils zlib1g-dev device-tree-compiler \
+            libncurses-dev libxml2-utils xsltproc kmod cpio \
+            openjdk-17-jdk
 
-      - name: Download Kernel Source (Release)
+      - name: Setup Neutron-Clang Toolchain
+        run: |
+          mkdir -p $HOME/toolchains
+          if [ ! -d "$HOME/toolchains/neutron-clang" ]; then
+            echo "⬇️ Cloning Neutron-Clang Toolchain"
+            mkdir -p $HOME/toolchains/neutron-clang && cd $HOME/toolchains/neutron-clang
+            curl -LO "https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman"
+            chmod +x antman
+            ./antman -S
+            ./antman --patch=glibc
+          fi
+          echo "$HOME/toolchains/neutron-clang/bin" >> $GITHUB_PATH
+
+      - name: Download Kernel Source
         run: |
           wget -O kernel.tar "https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/kernel-5.15.tar"
-      - name: Extract Kernel Source
-        run: |
-          mkdir -p kernel-5.15
+          mkdir kernel-5.15
           tar -xf kernel.tar -C kernel-5.15 --strip-components=1
 
       - name: Clone utilities (AnyKernel3 & SUSFS)
@@ -46,7 +48,7 @@ jobs:
       - name: Apply KernelSU-Next
         run: |
           cd kernel-5.15
-          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash - || true
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -
 
       - name: Apply SUSFS patch
         run: |
@@ -55,16 +57,12 @@ jobs:
           cp -r ../susfs/kernel_patches/fs/* fs/ || true
           cp -r ../susfs/kernel_patches/include/linux/* include/linux/ || true
 
-      - name: Fix Kconfig encoding (sanitize quotes/whitespace)
+      - name: Select defconfig + Build Kernel
+        shell: bash
         run: |
           cd kernel-5.15
-          find drivers -name "Kconfig*" -type f -print0 | xargs -0 sed -i "s/’/'/g; s/‘/'/g"
-          sed -i 's/^[[:space:]]*#/#/' drivers/power/supply/Kconfig || true
 
-      - name: Build Kernel (A06 defconfig)
-        run: |
-          set -euo pipefail
-          cd kernel-5.15
+          # chọn defconfig
           if [ -f arch/arm64/configs/a06x_defconfig ]; then
             DEFCONFIG=a06x_defconfig
           elif [ -f arch/arm64/configs/a06_defconfig ]; then
@@ -73,31 +71,26 @@ jobs:
             echo "❌ Không tìm thấy defconfig!"
             exit 1
           fi
+          echo "DEFCONFIG=$DEFCONFIG"
 
-          make O=out ARCH=arm64 "$DEFCONFIG"
-          make O=out ARCH=arm64 olddefconfig </dev/null
+          # tạo config
+          make O=out ARCH=arm64 $DEFCONFIG
+          yes "" | make O=out ARCH=arm64 olddefconfig
 
-          echo "✅ .config sinh ra:"
-          head -n 20 out/.config || true
-
-          make -j"$(nproc)" O=out ARCH=arm64 \
-            CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld \
-            Image dtbs modules 2>&1 | tee build.log
-
-          if [ -f out/arch/arm64/boot/Image ]; then
-            echo "✅ Build thành công: Image"
-          elif [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
-            echo "✅ Build thành công: Image.gz-dtb"
-          else
-            echo "❌ Build xong nhưng không có Image!"
-            exit 1
-          fi
+          # build kernel với Neutron-Clang
+          ( make -j$(nproc --all) O=out ARCH=arm64 \
+              CC=clang \
+              CROSS_COMPILE=aarch64-linux-gnu- \
+              CLANG_TRIPLE=aarch64-linux-gnu- \
+              LLVM=1 LLVM_IAS=1 \
+              LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
+              Image dtbs modules 2>&1 | tee build.log ) || exit ${PIPESTATUS[0]}
 
       - name: Pack AnyKernel3 zip
         run: |
-          IMG=$(ls kernel-5.15/out/arch/arm64/boot/Image* 2>/dev/null || true)
+          IMG=$(ls kernel-5.15/out/arch/arm64/boot/Image* 2>/dev/null | head -n1 || true)
           if [ -z "$IMG" ]; then
-            echo "❌ Không tìm thấy Image!"
+            echo "❌ Không tìm thấy kernel Image!"
             exit 1
           fi
           cp "$IMG" AnyKernel3/Image
@@ -106,7 +99,7 @@ jobs:
           cd AnyKernel3
           zip -r ../Kernel-A06-KSU-SUSFS.zip ./*
 
-      - name: Upload artifacts (config + zip + image + log)
+      - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
