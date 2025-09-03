@@ -49,19 +49,29 @@ jobs:
           set -eux
           wget -O source.zip "https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/A066B-5G.zip"
           unzip -q source.zip
-          
-          echo "📂 Danh sách sau khi giải nén:"
+
+          echo "📂 Sau khi giải nén source.zip:"
           ls -la
-          
-          # Tìm thư mục kernel-5.15 thực sự nằm ở đâu
-          SRC_DIR=$(find . -type d -name "kernel-5.15" | head -n 1)
+
+          # Giải nén Kernel.tar.gz để lấy mã nguồn thật
+          tar -xvf Kernel.tar.gz
+
+          echo "📂 Sau khi giải nén Kernel.tar.gz:"
+          ls -la
+
+          # Tìm thư mục kernel-5.15 thật sự
+          SRC_DIR=$(find . -type d -name "kernel-5.15" | head -n 1 || true)
           echo "✅ SRC_DIR=$SRC_DIR"
-          
-          # Đưa kernel-5.15 ra ngoài cùng để workflow tìm thấy
+
+          if [ -z "$SRC_DIR" ]; then
+            echo "❌ Không tìm thấy kernel-5.15 sau khi giải nén!"
+            exit 1
+          fi
+
           mv "$SRC_DIR" ./kernel-5.15
           chmod +x -R kernel-5.15
-          
-          echo "📂 Cấu trúc thư mục kernel-5.15:"
+
+          echo "📂 Cấu trúc trong kernel-5.15:"
           ls -la kernel-5.15
 
       - name: Clone AnyKernel3 & SUSFS
