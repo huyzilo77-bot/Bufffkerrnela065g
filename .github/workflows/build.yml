@@ -67,6 +67,7 @@ jobs:
             exit 1
           fi
           echo "DEFCONFIG=$DEFCONFIG" >> "$GITHUB_ENV"
+          echo "👉 Sử dụng defconfig: $DEFCONFIG"
 
           # 🔹 Clone ABI whitelist Android 13 - 5.15
           cd ..
@@ -75,18 +76,20 @@ jobs:
 
           ABI_FILE=$(ls ../gki-common/android/ | grep "abi_gki_aarch64_mtk" | head -n1 || true)
           if [ -n "$ABI_FILE" ]; then
+            echo "✅ Dùng ABI whitelist MTK: $ABI_FILE"
             cp ../gki-common/android/$ABI_FILE abi_symbollist.raw
           else
             ABI_FILE=$(ls ../gki-common/android/ | grep "abi_gki_aarch64_generic" | head -n1 || true)
             if [ -n "$ABI_FILE" ]; then
+              echo "✅ Dùng ABI whitelist generic: $ABI_FILE"
               cp ../gki-common/android/$ABI_FILE abi_symbollist.raw
             else
-              echo "⚠️ Không có ABI → tạo file rỗng"
+              echo "⚠️ Không tìm thấy file ABI → tạo file rỗng"
               : > abi_symbollist.raw
             fi
           fi
 
-          # 🔹 Copy ABI vào nhiều path (bao gồm path hard-code DPI)
+          # 🔹 Copy ABI tới nhiều path để tránh lỗi
           mkdir -p abi out out/abi out/android/abi out/obj/KERNEL_OBJ/kernel-5.15
           cp abi_symbollist.raw abi/abi_symbollist.raw
           cp abi_symbollist.raw out/abi/abi_symbollist.raw
@@ -95,25 +98,28 @@ jobs:
           mkdir -p out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15
           cp abi_symbollist.raw out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
 
-          # 🔹 Fake path /home/dpi/... để tránh lỗi
-          sudo mkdir -p /home/dpi/qb5_8814/workspace/P4_1716/android/out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15
-          sudo cp abi_symbollist.raw /home/dpi/qb5_8814/workspace/P4_1716/android/out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
-
-          # 🔹 Disable ABI check
-          sed -i 's/abi_symbollist.raw/\/dev\/null/g' Makefile || true
-          sed -i 's/abi_symbollist.raw/\/dev\/null/g' scripts/Makefile.lib || true
-          sed -i 's/^CONFIG_ANDROID_ABI_SYMBOLS.*/# CONFIG_ANDROID_ABI_SYMBOLS is not set/' arch/arm64/configs/*defconfig || true
-
           echo "📌 ABI whitelist đã xử lý:"
-          find . -name "abi_symbollist.raw" -ls || true
+          find out -name "abi_symbollist.raw" -ls || true
 
-          # 🔹 Build kernel + log
+          # 🔹 Tạo .config không interactive
           chmod +x -R ./scripts
           make O=out ARCH=arm64 "$DEFCONFIG"
-          make O=out ARCH=arm64 olddefconfig </dev/null
+
+          # ép olddefconfig, auto answer hết prompt
+          yes "" | make O=out ARCH=arm64 olddefconfig || true
+          make O=out ARCH=arm64 olddefconfig </dev/null || true
+
+          # 🔹 Lưu config sạch ra defconfig chuẩn hóa
+          make O=out ARCH=arm64 savedefconfig
+          cp out/defconfig arch/arm64/configs/$DEFCONFIG || true
+
+          echo "✅ File .config đã sinh ra:"
+          head -n 20 out/.config || true
+
+          # 🔹 Build kernel, log đầy đủ
           ( make -j"$(nproc --all)" O=out ARCH=arm64 \
-              CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld 2>&1 | tee build.log ) \
-              || exit ${PIPESTATUS[0]}
+              CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld 2>&1 \
+              | tee build.log ) || exit ${PIPESTATUS[0]}
 
       - name: Pack AnyKernel3 zip
         run: |
