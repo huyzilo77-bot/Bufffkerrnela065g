@@ -3,6 +3,9 @@ name: Build Samsung A06 5G (GKI 5.15.151 • KSU-Next + SUSFS)
 on:
   workflow_dispatch:
 
+env:
+  TAG_NAME: V1   # ⚠️ chỉnh ở đây khi muốn đổi version (VD: V2, build-${{ github.run_id }})
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -37,41 +40,45 @@ jobs:
             python3 python-is-python3 \
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
             pahole
-          # ép clang-16 & lld-16
           sudo update-alternatives --install /usr/bin/clang   clang   /usr/bin/clang-16 100
           sudo update-alternatives --install /usr/bin/ld.lld  ld.lld  /usr/bin/lld-16   100
 
       - name: Download kernel source (A06 • 5.15)
         run: |
-          set -eux
           wget -O kernel.tar "https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/kernel-5.15.tar"
           mkdir kernel-5.15
           tar -xf kernel.tar -C kernel-5.15 --strip-components=1
 
       - name: Clone AnyKernel3 & SUSFS
         run: |
-          set -eux
           git clone https://github.com/osm0sis/AnyKernel3.git AnyKernel3
-          # SUSFS cho GKI Android 13 • 5.15
           git clone -b gki-android13-5.15 https://gitlab.com/simonpunk/susfs4ksu.git susfs
 
       - name: Apply KernelSU-Next
         run: |
-          set -eux
           cd kernel-5.15
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s -- -s next
 
       - name: Apply SUSFS patches
         run: |
-          set -eux
           cd kernel-5.15
           patch -p1 --forward < ../susfs/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch || true
           cp -r ../susfs/kernel_patches/fs/* fs/ || true
           cp -r ../susfs/kernel_patches/include/linux/* include/linux/ || true
 
+      - name: Collect .rej files (sau SUSFS patches)
+        run: |
+          mkdir -p rej_artifacts
+          find . -type f -name "*.rej" -print > rej_artifacts/rej-list.txt || true
+          if [ -s rej_artifacts/rej-list.txt ]; then
+            tar -czf rej_artifacts/rej-files.tar.gz -T rej_artifacts/rej-list.txt
+          else
+            echo "Không tìm thấy file .rej"
+          fi
+        working-directory: kernel-5.15
+
       - name: Fix Kconfig unicode/whitespace
         run: |
-          set -eux
           cd kernel-5.15
           find drivers -name "Kconfig*" -type f -print0 | xargs -0 sed -i "s/’/'/g; s/‘/'/g"
           find drivers -name "Kconfig*" -type f -print0 | xargs -0 perl -i -pe 's/\x{00A0}/ /g; s/\x{FEFF}//g; s/\r$//'
@@ -94,7 +101,7 @@ jobs:
           fi
           echo "✅ DEFCONFIG=$DEFCONFIG"
 
-          echo "🔹 Fetch ABI whitelist (android13-5.15, ưu tiên Mediatek)…"
+          echo "🔹 Fetch ABI whitelist…"
           cd ..
           git clone --depth=1 https://android.googlesource.com/kernel/common -b android13-5.15 gki-common
           cd kernel-5.15
@@ -105,38 +112,27 @@ jobs:
             ABI_FILE=$(ls ../gki-common/android/ | grep "^abi_gki_aarch64_generic" | head -n1)
           fi
           if [ -n "${ABI_FILE:-}" ]; then
-            echo "✅ Using ABI whitelist: $ABI_FILE"
             cp "../gki-common/android/$ABI_FILE" abi_symbollist.raw
           else
-            echo "⚠️ Không tìm thấy ABI phù hợp → tạo file rỗng"
             : > abi_symbollist.raw
           fi
 
-          echo "🔹 Copy ABI vào các path thường được kernel gọi…"
           mkdir -p abi out out/abi out/android/abi out/obj/KERNEL_OBJ/kernel-5.15
           cp abi_symbollist.raw abi/abi_symbollist.raw
           cp abi_symbollist.raw out/abi/abi_symbollist.raw
           cp abi_symbollist.raw out/android/abi/abi_symbollist.raw
           cp abi_symbollist.raw out/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
-          # 👉 FIX: thêm 2 path tuyệt đối hay bị hard-code bởi vendor (log của bạn)
+
           for prod in a06x a06; do
             ABS="/home/dpi/qb5_8814/workspace/P4_1716/android/out/target/product/${prod}/obj/KERNEL_OBJ/kernel-5.15"
             sudo mkdir -p "$ABS"
             sudo install -m 0644 abi_symbollist.raw "$ABS/abi_symbollist.raw"
           done
 
-          echo "📎 ABI files:"
-          find . -name "abi_symbollist.raw" -ls || true
-
-          echo "🔹 Generate .config (non-interactive)…"
-          # 👉 FIX: tránh Permission denied + dùng clang ngay từ bước config
-          chmod +x -R ./scripts || true
           MAKEVARS="O=out ARCH=arm64 CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld"
           make $MAKEVARS "$DEFCONFIG"
-          # 👉 FIX: bỏ hẳn 'yes' để hết Broken pipe
           make $MAKEVARS olddefconfig </dev/null
 
-          echo "🔹 Enable KSU + SUSFS + LTO Thin + Net/BBR + LOCALVERSION…"
           ./scripts/config --file out/.config \
             -e KSU \
             -e KSU_SUSFS \
@@ -164,40 +160,19 @@ jobs:
           ./scripts/config --file out/.config \
             --set-str LOCALVERSION "-A06GKI-5.15.151-KSUNext-SUSFS" || true
 
-          echo "🔹 Merge lại config…"
           make $MAKEVARS olddefconfig </dev/null
-
-          echo "✅ .config (head):"
-          head -n 50 out/.config || true
-
-          echo "🚀 Build kernel (ghi log & giữ exit code)…"
           ( make -j"$(nproc --all)" $MAKEVARS Image dtbs modules 2>&1 | tee build.log ); test ${PIPESTATUS[0]} -eq 0
-
-          echo "🔎 Kiểm tra output…"
-          if [ -f out/arch/arm64/boot/Image ]; then
-            echo "✅ Found: out/arch/arm64/boot/Image"
-          elif [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
-            echo "✅ Found: out/arch/arm64/boot/Image.gz-dtb"
-          else
-            echo "❌ Build xong nhưng không có Image!"
-            exit 1
-          fi
-
-          echo "📝 Lưu tuned defconfig để debug (tuỳ chọn)…"
           make $MAKEVARS savedefconfig || true
           cp out/defconfig out/a06_tuned_defconfig || true
 
       - name: Pack AnyKernel3
         run: |
-          set -eux
           IMG=$(ls kernel-5.15/out/arch/arm64/boot/Image* 2>/dev/null | head -n1 || true)
           if [ -z "$IMG" ]; then
-            echo "⚠️ Không có Image* → thử tarballs"
             IMG=$(ls kernel-5.15/out/arch/arm64/boot/*.tar.gz 2>/dev/null | head -n1 || true)
             if [ -n "$IMG" ]; then
               cp "$IMG" AnyKernel3/Image.tar.gz
             else
-              echo "❌ Không tìm thấy Image hoặc tar.gz để pack!"
               exit 1
             fi
           else
@@ -208,7 +183,7 @@ jobs:
           cd AnyKernel3
           zip -r ../Kernel-A06-5.15.151-KSU-Next-SUSFS.zip ./*
 
-      - name: Upload artifacts (config • image • zip • log • objects)
+      - name: Upload artifacts (debug)
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -220,40 +195,21 @@ jobs:
             kernel-5.15/out/arch/arm64/boot/Image*
             kernel-5.15/out/arch/arm64/boot/*.tar.gz
             Kernel-A06-5.15.151-KSU-Next-SUSFS.zip
-            kernel-5.15/out/**/*.o
-            kernel-5.15/out/**/*.cmd
-      - name: Upload artifacts (config • image • zip • log • objects)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Kernel-Outputs-A06-5.15.151
-          path: |
-            kernel-5.15/build.log
-            kernel-5.15/out/.config
-            kernel-5.15/out/a06_tuned_defconfig
-            kernel-5.15/out/arch/arm64/boot/Image*
-            kernel-5.15/out/arch/arm64/boot/*.tar.gz
-            Kernel-A06-5.15.151-KSU-Next-SUSFS.zip
-            kernel-5.15/out/**/*.o
-            kernel-5.15/out/**/*.cmd
+            kernel-5.15/rej_artifacts/rej-files.tar.gz
 
-      - name: Collect .rej files
+      - name: Upload to GitHub Release (Kernel + REJ)
         if: always()
-        run: |
-          mkdir -p rej_artifacts
-          find . -type f -name "*.rej" -print > rej_artifacts/rej-list.txt || true
-          if [ -s rej_artifacts/rej-list.txt ]; then
-            tar -czf rej_artifacts/rej-files.tar.gz -T rej_artifacts/rej-list.txt
-          else
-            echo "No .rej files found."
-          fi
-
-      - name: Upload REJ to Release
-        if: hashFiles('rej_artifacts/rej-files.tar.gz') != ''
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: rej-${{ github.run_id }}
-          name: "REJ dump ${{ github.run_id }}"
-          files: rej_artifacts/rej-files.tar.gz
+          tag_name: ${{ env.TAG_NAME }}
+          name: "Samsung A06 5G Kernel 5.15.151 • KSU-Next + SUSFS"
+          files: |
+            Kernel-A06-5.15.151-KSU-Next-SUSFS.zip
+            kernel-5.15/build.log
+            kernel-5.15/out/.config
+            kernel-5.15/out/a06_tuned_defconfig
+            kernel-5.15/out/arch/arm64/boot/Image*
+            kernel-5.15/out/arch/arm64/boot/*.tar.gz
+            kernel-5.15/rej_artifacts/rej-files.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
