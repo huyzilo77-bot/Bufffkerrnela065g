@@ -167,7 +167,7 @@ jobs:
           echo "📂 Files trong DIST_DIR:"
           ls -la $DIST_DIR || true
 
-      - name: Pack AnyKernel3 zip
+       - name: Pack AnyKernel3 zip
   run: |
     set -eux
     DIST=out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot
