@@ -67,7 +67,7 @@ jobs:
           set -euo pipefail
           cd kernel-5.15
 
-          # 🔹 chọn defconfig
+          # 🔹 Chọn defconfig cho A06
           if [ -f arch/arm64/configs/a06x_defconfig ]; then
             DEFCONFIG=a06x_defconfig
           elif [ -f arch/arm64/configs/a06_defconfig ]; then
@@ -76,54 +76,59 @@ jobs:
             echo "❌ Không tìm thấy defconfig cho A06!"
             exit 1
           fi
-          echo "👉 Sử dụng defconfig: $DEFCONFIG"
           echo "DEFCONFIG=$DEFCONFIG" >> "$GITHUB_ENV"
+          echo "👉 Sử dụng defconfig: $DEFCONFIG"
 
-          # 🔹 clone ABI whitelist
+          # 🔹 Clone ABI whitelist Android 13 - 5.15
           cd ..
           git clone --depth=1 https://android.googlesource.com/kernel/common -b android13-5.15 gki-common
           cd kernel-5.15
+
           ABI_FILE=$(ls ../gki-common/android/ | grep "abi_gki_aarch64" | head -n1 || true)
           if [ -n "$ABI_FILE" ]; then
+            echo "✅ Dùng ABI whitelist: $ABI_FILE"
             cp ../gki-common/android/$ABI_FILE abi_symbollist.raw
           else
+            echo "⚠️ Không tìm thấy ABI → tạo file rỗng"
             : > abi_symbollist.raw
           fi
 
-          # copy ABI vào nhiều path để tránh lỗi
-          mkdir -p out/abi out/android/abi out/obj/KERNEL_OBJ/kernel-5.15
+          # 🔹 Copy ABI tới nhiều path để tránh lỗi
+          mkdir -p abi out out/abi out/android/abi out/obj/KERNEL_OBJ/kernel-5.15 out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15
+          cp abi_symbollist.raw abi/abi_symbollist.raw
           cp abi_symbollist.raw out/abi/abi_symbollist.raw
           cp abi_symbollist.raw out/android/abi/abi_symbollist.raw
           cp abi_symbollist.raw out/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
+          cp abi_symbollist.raw out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
 
-          # 🔹 build .config (non-interactive)
+          echo "📌 ABI whitelist đã xử lý:"
+          find out -name "abi_symbollist.raw" -ls || true
+
+          # 🔹 Build .config (non-interactive)
           make O=out ARCH=arm64 "$DEFCONFIG"
-          yes "" | make O=out ARCH=arm64 olddefconfig </dev/null || true
+          yes "" | make O=out ARCH=arm64 olddefconfig || true
+          make O=out ARCH=arm64 olddefconfig </dev/null || true
 
-          echo "✅ .config sinh ra:"
+          echo "✅ File .config đã sinh ra:"
           head -n 20 out/.config || true
 
-          # 🔹 ép bật option kernel image
+          # 🔹 Ép bật option image nếu cần
           if [ -f scripts/config ]; then
-            scripts/config --file out/.config -e BUILD_ARM64_KERNEL -e KERNEL_GZIP
+            scripts/config --file out/.config -e BUILD_ARM64_KERNEL -e KERNEL_GZIP || true
             make O=out ARCH=arm64 olddefconfig </dev/null || true
           fi
 
-          # 🔹 build host tools + savedefconfig
-          make O=out ARCH=arm64 HOSTCC=gcc HOSTCXX=g++ olddefconfig prepare </dev/null
-          make O=out ARCH=arm64 savedefconfig </dev/null
-          cp out/defconfig arch/arm64/configs/$DEFCONFIG || true
-
-          # 🔹 build kernel + log
-          ( make -j$(nproc --all) O=out ARCH=arm64 \
+          # 🔹 Build kernel + log
+          chmod +x -R ./scripts || true
+          ( make -j"$(nproc --all)" O=out ARCH=arm64 \
               CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld \
               Image dtbs modules 2>&1 | tee build.log ) || exit ${PIPESTATUS[0]}
 
-          # 🔹 kiểm tra output
+          # 🔹 Kiểm tra output
           if [ -f out/arch/arm64/boot/Image ]; then
-            echo "✅ Build thành công: tìm thấy Image"
+            echo "✅ Build thành công: tìm thấy out/arch/arm64/boot/Image"
           elif [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
-            echo "✅ Build thành công: tìm thấy Image.gz-dtb"
+            echo "✅ Build thành công: tìm thấy out/arch/arm64/boot/Image.gz-dtb"
           else
             echo "❌ Build xong nhưng không có Image!"
             exit 1
