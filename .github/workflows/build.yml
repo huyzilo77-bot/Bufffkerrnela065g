@@ -222,3 +222,38 @@ jobs:
             Kernel-A06-5.15.151-KSU-Next-SUSFS.zip
             kernel-5.15/out/**/*.o
             kernel-5.15/out/**/*.cmd
+      - name: Upload artifacts (config • image • zip • log • objects)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kernel-Outputs-A06-5.15.151
+          path: |
+            kernel-5.15/build.log
+            kernel-5.15/out/.config
+            kernel-5.15/out/a06_tuned_defconfig
+            kernel-5.15/out/arch/arm64/boot/Image*
+            kernel-5.15/out/arch/arm64/boot/*.tar.gz
+            Kernel-A06-5.15.151-KSU-Next-SUSFS.zip
+            kernel-5.15/out/**/*.o
+            kernel-5.15/out/**/*.cmd
+
+      - name: Collect .rej files
+        if: always()
+        run: |
+          mkdir -p rej_artifacts
+          find . -type f -name "*.rej" -print > rej_artifacts/rej-list.txt || true
+          if [ -s rej_artifacts/rej-list.txt ]; then
+            tar -czf rej_artifacts/rej-files.tar.gz -T rej_artifacts/rej-list.txt
+          else
+            echo "No .rej files found."
+          fi
+
+      - name: Upload REJ to Release
+        if: hashFiles('rej_artifacts/rej-files.tar.gz') != ''
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: rej-${{ github.run_id }}
+          name: "REJ dump ${{ github.run_id }}"
+          files: rej_artifacts/rej-files.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
