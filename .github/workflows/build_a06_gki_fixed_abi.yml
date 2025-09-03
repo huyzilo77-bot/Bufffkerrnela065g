@@ -109,6 +109,12 @@ jobs:
           ./scripts/config --file out/.config -d KSU_KPROBES_HOOK || true
           make O=out ARCH=arm64 olddefconfig
 
+      - name: Setup ccache
+        run: |
+          sudo apt install -y ccache
+          export USE_CCACHE=1
+          ccache -M 5G
+
       - name: Build Kernel (Samsung build.sh)
         run: |
           set -eux
