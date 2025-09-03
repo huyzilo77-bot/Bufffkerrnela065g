@@ -155,27 +155,27 @@ jobs:
           mkdir -p $OUT_DIR $DIST_DIR
 
           # chọn defconfig
-          if [ -f arch/arm64/configs/a06x_00_defconfig ]; then
-            DEFCONFIG=a06x_00_defconfig
-          elif [ -f arch/arm64/configs/a06x_defconfig ]; then
-            DEFCONFIG=a06x_defconfig
-          else
-            DEFCONFIG=gki_defconfig
-          fi
+        if [ -f arch/arm64/configs/a06x_00_defconfig ]; then
+          DEFCONFIG=a06x_00_defconfig
+        elif [ -f arch/arm64/configs/a06x_defconfig ]; then
+          DEFCONFIG=a06x_defconfig
+        else
+          DEFCONFIG=gki_defconfig
+        fi
 
-          echo "Using DEFCONFIG=$DEFCONFIG"
+        echo "Using DEFCONFIG=$DEFCONFIG"
 
-          # chạy build.sh
-if [ -f ../kernel/build/kernel/build.sh ]; then
-  BUILD_CONFIG=arch/arm64/configs/$DEFCONFIG \
-  ../kernel/build/kernel/build.sh -j$(nproc --all) 2>&1 | tee ../build.log
-elif [ -f ./build.sh ]; then
-  BUILD_CONFIG=arch/arm64/configs/$DEFCONFIG \
-  ./build.sh -j$(nproc --all) 2>&1 | tee ../build.log
-else
-  echo "❌ Không tìm thấy build.sh"
-  exit 1
-fi
+        # chạy build.sh
+        if [ -f ../kernel/build/kernel/build.sh ]; then
+          BUILD_CONFIG=arch/arm64/configs/$DEFCONFIG \
+          ../kernel/build/kernel/build.sh -j$(nproc --all) 2>&1 | tee ../build.log
+        elif [ -f ./build.sh ]; then
+          BUILD_CONFIG=arch/arm64/configs/$DEFCONFIG \
+          ./build.sh -j$(nproc --all) 2>&1 | tee ../build.log
+        else
+          echo "❌ Không tìm thấy build.sh"
+          exit 1
+        fi
 
       - name: Pack AnyKernel3 zip
         run: |
