@@ -35,7 +35,7 @@ jobs:
             git curl wget unzip zip xz-utils zstd \
             build-essential bc bison flex \
             libelf-dev libssl-dev libarchive-tools \
-            device-tree-compiler lz4 \
+            device-tree-compiler lz4 mkbootimg \
             llvm-16 clang-16 lld-16 \
             python3 python-is-python3 \
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
@@ -111,20 +111,16 @@ jobs:
         run: |
           set -eux
           DIST=out/target/product/a06x/obj/KERNEL_OBJ/dist
-          IMG=""
+          ls -la "$DIST" || true
 
-          if [ -f "$DIST/Image.gz-dtb" ]; then
-            IMG="$DIST/Image.gz-dtb"
-          elif [ -f "$DIST/Image.gz" ]; then
-            IMG="$DIST/Image.gz"
-          elif [ -f "$DIST/Image" ]; then
-            IMG="$DIST/Image"
-          fi
+          IMG=$(find "$DIST" -maxdepth 1 -type f \( -name "Image.gz-dtb" -o -name "Image.gz" -o -name "Image" -o -name "vmlinux*" \) | head -n1 || true)
 
           if [ -z "$IMG" ]; then
-            echo "❌ Không tìm thấy kernel Image!"
+            echo "❌ Không tìm thấy kernel Image trong $DIST"
             exit 1
           fi
+
+          echo "✅ Found kernel image: $IMG"
 
           cp "$IMG" AnyKernel3/
           (cd $DIST && cp -r dtb* ../../../../../../AnyKernel3/ || true)
@@ -132,6 +128,29 @@ jobs:
 
           cd AnyKernel3
           zip -r ../Kernel-A06-5.15.151-KSU-Next-SUSFS.zip ./*
+
+      - name: Collect GKI boot artifacts
+        run: |
+          set -eux
+          DIST=out/target/product/a06x/obj/KERNEL_OBJ/dist
+
+          # Build dtbo.img if dtbos exist
+          if compgen -G "$DIST/*.dtbo" > /dev/null; then
+            mkdtimg create "$DIST/dtbo.img" $(ls $DIST/*.dtbo)
+          fi
+
+          # Try building vendor_dlkm.img (modules)
+          if [ -d "$DIST/lib/modules" ]; then
+            mkdir -p "$DIST/vendor_dlkm_staging"
+            cp -r "$DIST/lib/modules" "$DIST/vendor_dlkm_staging/lib/"
+            touch "$DIST/vendor_dlkm.img"  # placeholder, real build needs props file
+          fi
+
+          # Build boot.img if kernel binary exists
+          if [ -f "$DIST/Image.gz" ] || [ -f "$DIST/Image.gz-dtb" ]; then
+            KERNEL_BIN=$(ls $DIST/Image* | head -n1)
+            mkbootimg --kernel $KERNEL_BIN --output $DIST/boot.img || true
+          fi
 
       - name: Upload artifacts
         if: always()
