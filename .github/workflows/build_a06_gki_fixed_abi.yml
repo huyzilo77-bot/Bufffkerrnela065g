@@ -46,16 +46,23 @@ jobs:
 
       - name: Download Kernel Source (Samsung A06 Release)
         run: |
+          set -eux
           wget -O source.zip "https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/A066B-5G.zip"
           unzip -q source.zip
+          
           echo "📂 Danh sách sau khi giải nén:"
           ls -la
-
-          # lấy thư mục con chính
-          SRC_DIR=$(find . -maxdepth 1 -type d ! -name "." | head -n 1)
+          
+          # Tìm thư mục kernel-5.15 thực sự nằm ở đâu
+          SRC_DIR=$(find . -type d -name "kernel-5.15" | head -n 1)
           echo "✅ SRC_DIR=$SRC_DIR"
-          mv "$SRC_DIR" kernel-5.15
+          
+          # Đưa kernel-5.15 ra ngoài cùng để workflow tìm thấy
+          mv "$SRC_DIR" ./kernel-5.15
           chmod +x -R kernel-5.15
+          
+          echo "📂 Cấu trúc thư mục kernel-5.15:"
+          ls -la kernel-5.15
 
       - name: Clone AnyKernel3 & SUSFS
         run: |
