@@ -1,4 +1,4 @@
-name: Build Samsung A06 5G (GKI 5.15.151 • KSU-Next + SUSFS)
+name: Build Samsung A06 Kernel (5.15.151 • KSU-Next + SUSFS)
 
 on:
   workflow_dispatch:
@@ -12,7 +12,7 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Maximize build space
+      - name: Free up disk space
         uses: AdityaGarg8/remove-unwanted-software@v5
         with:
           remove-android: true
@@ -74,7 +74,7 @@ jobs:
           find drivers -name "Kconfig*" -type f -print0 | xargs -0 perl -i -pe 's/\x{00A0}/ /g; s/\x{FEFF}//g; s/\r$//'
           sed -i 's/^[[:space:]]*#/#/' drivers/power/supply/Kconfig || true
 
-      - name: Select defconfig + Fetch ABI + Build
+      - name: Build kernel
         run: |
           set -eux
           cd kernel-5.15
@@ -85,12 +85,12 @@ jobs:
           elif [ -f arch/arm64/configs/a06_defconfig ]; then
             DEFCONFIG=a06_defconfig
           else
-            echo "⚠️ Không tìm thấy defconfig, fallback sang gki_defconfig"
-            DEFCONFIG=gki_defconfig
+            echo "❌ Không tìm thấy defconfig!"
+            exit 1
           fi
           echo "✅ DEFCONFIG=$DEFCONFIG"
 
-          # clone ABI
+          # clone ABI từ GKI common
           cd ..
           git clone --depth=1 https://android.googlesource.com/kernel/common -b android13-5.15 gki-common
           cd kernel-5.15
@@ -109,14 +109,15 @@ jobs:
             : > abi_symbollist.raw
           fi
 
-          # copy ABI tới nơi cần
+          # copy ABI đúng chỗ
+          mkdir -p abi out/abi out/android/abi out/obj/KERNEL_OBJ/kernel-5.15
           cp abi_symbollist.raw abi/abi_symbollist.raw
           cp abi_symbollist.raw out/abi/abi_symbollist.raw
           cp abi_symbollist.raw out/android/abi/abi_symbollist.raw
           cp abi_symbollist.raw out/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
-          cp abi_symbollist.raw kernel-5.15/abi_symbollist.raw
+          cp abi_symbollist.raw ./abi_symbollist.raw
 
-          # build config
+          # config
           make O=out ARCH=arm64 $DEFCONFIG
           make O=out ARCH=arm64 olddefconfig
           ./scripts/config --file out/.config -e KSU -e KSU_SUSFS || true
@@ -162,7 +163,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Kernel-Outputs-A06-5.15.151
+          name: Kernel-Outputs-A06
           path: |
             kernel-5.15/build.log
             kernel-5.15/out/.config
