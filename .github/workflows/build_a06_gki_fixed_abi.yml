@@ -142,40 +142,30 @@ jobs:
         run: |
           set -eux
           cd kernel-5.15
+
+          # Tạo build.config từ defconfig
+          python3 scripts/gen_build_config.py \
+            --kernel-defconfig a06x_00_defconfig \
+            --kernel-defconfig-overlays "entry_level.config" \
+            -m user \
+            -o ../out/target/product/a06x/obj/KERNEL_OBJ/build.config
+
+          # Xuất biến môi trường cho build
           export ARCH=arm64
-          export SUBARCH=arm64
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export CROSS_COMPILE_COMPAT=arm-linux-gnueabi-
-          export CC=clang
-          export LD=ld.lld
+          export PLATFORM_VERSION=13
+          export CROSS_COMPILE="aarch64-linux-gnu-"
+          export CROSS_COMPILE_COMPAT="arm-linux-gnueabi-"
+          export OUT_DIR="../out/target/product/a06x/obj/KERNEL_OBJ"
+          export DIST_DIR="../out/target/product/a06x/obj/KERNEL_OBJ"
+          export BUILD_CONFIG="../out/target/product/a06x/obj/KERNEL_OBJ/build.config"
 
-          # OUT & DIST
-          export OUT_DIR=out
-          export DIST_DIR=dist
-          mkdir -p $OUT_DIR $DIST_DIR
+          # Quay ra thư mục kernel gốc (Samsung để build.sh ở kernel/build/)
+          cd ../kernel
+          ./build/build.sh -j$(nproc --all) 2>&1 | tee ../build.log
 
-          # chọn defconfig
-          if [ -f arch/arm64/configs/a06x_00_defconfig ]; then
-            DEFCONFIG=a06x_00_defconfig
-          elif [ -f arch/arm64/configs/a06x_defconfig ]; then
-            DEFCONFIG=a06x_defconfig
-          else
-            DEFCONFIG=gki_defconfig
-          fi
-
-          echo "Using DEFCONFIG=$DEFCONFIG"
-
-          # chạy build.sh
-          if [ -f ../kernel/build/kernel/build.sh ]; then
-            BUILD_CONFIG=arch/arm64/configs/$DEFCONFIG \
-            ../kernel/build/kernel/build.sh -j$(nproc --all) 2>&1 | tee ../build.log
-          elif [ -f ./build.sh ]; then
-            BUILD_CONFIG=arch/arm64/configs/$DEFCONFIG \
-            ./build.sh -j$(nproc --all) 2>&1 | tee ../build.log
-          else
-            echo "❌ Không tìm thấy build.sh"
-            exit 1
-          fi
+          # Debug để xem file nào được tạo ra
+          echo "📂 Files trong DIST_DIR:"
+          ls -la $DIST_DIR || true
 
       - name: Pack AnyKernel3 zip
         run: |
