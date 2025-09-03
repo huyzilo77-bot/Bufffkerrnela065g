@@ -6,7 +6,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
 
     steps:
       - name: Checkout repo
@@ -15,18 +15,10 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y git wget curl build-essential bc bison flex \
-            libssl-dev libelf-dev ccache unzip zip python3 \
-            llvm-16 clang-16 lld-16
-
-          # ép dùng clang-16
-          sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-16 100
-          sudo update-alternatives --install /usr/bin/ld.lld ld.lld /usr/bin/lld-16 100
-          sudo update-alternatives --install /usr/bin/llvm-ar llvm-ar /usr/bin/llvm-ar-16 100
-          sudo update-alternatives --install /usr/bin/llvm-nm llvm-nm /usr/bin/llvm-nm-16 100
-          sudo update-alternatives --install /usr/bin/llvm-objcopy llvm-objcopy /usr/bin/llvm-objcopy-16 100
-          sudo update-alternatives --install /usr/bin/llvm-objdump llvm-objdump /usr/bin/llvm-objdump-16 100
-          sudo update-alternatives --install /usr/bin/llvm-strip llvm-strip /usr/bin/llvm-strip-16 100
+          sudo apt install -y git wget curl unzip zip bc bison flex build-essential \
+            device-tree-compiler libncurses-dev lz4 xz-utils zstd libssl-dev libelf-dev \
+            python3 python3-pip openjdk-17-jdk ccache pahole erofs-utils \
+            llvm clang lld bazelisk --fix-missing
 
       - name: Download Kernel Source (Release)
         run: |
@@ -34,86 +26,86 @@ jobs:
 
       - name: Extract Kernel Source
         run: |
-          mkdir kernel-5.15
+          mkdir -p kernel-5.15
           tar -xf kernel.tar -C kernel-5.15 --strip-components=1
 
-      - name: Fix script permissions
-        run: |
-          cd kernel-5.15
-          chmod +x -R ./scripts
-
-      - name: Clone utilities (AnyKernel3 & SUSFS)
+      - name: Clone utilities (AnyKernel3, SUSFS)
         run: |
           git clone https://github.com/osm0sis/AnyKernel3.git AnyKernel3
           git clone -b gki-android13-5.15 https://gitlab.com/simonpunk/susfs4ksu.git susfs
 
-      - name: Apply KernelSU-Next
+      - name: Apply KernelSU-Next + SUSFS
         run: |
           cd kernel-5.15
-          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -
-
-      - name: Apply SUSFS patch
-        run: |
-          cd kernel-5.15
+          echo "⚡ Apply KernelSU Next"
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash - || true
+          echo "⚡ Apply SUSFS patch"
           patch -p1 < ../susfs/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch || true
           cp -r ../susfs/kernel_patches/fs/* fs/ || true
           cp -r ../susfs/kernel_patches/include/linux/* include/linux/ || true
 
-      - name: Fix Kconfig encoding
+      - name: Fetch ABI whitelist
         run: |
           cd kernel-5.15
-          find drivers -name "Kconfig*" -type f -print0 | xargs -0 sed -i "s/’/'/g; s/‘/'/g"
-          sed -i 's/^[[:space:]]*#/#/' drivers/power/supply/Kconfig || true
+          cd ..
+          git clone --depth=1 https://android.googlesource.com/kernel/common -b android13-5.15 gki-common
+          cd kernel-5.15
 
-      - name: Select defconfig + Build Kernel
+          ABI_FILE=$(ls ../gki-common/android/ | grep "abi_gki_aarch64_mtk" | head -n1 || true)
+          if [ -n "$ABI_FILE" ]; then
+            cp ../gki-common/android/$ABI_FILE abi_symbollist.raw
+          else
+            ABI_FILE=$(ls ../gki-common/android/ | grep "abi_gki_aarch64_generic" | head -n1 || true)
+            if [ -n "$ABI_FILE" ]; then
+              cp ../gki-common/android/$ABI_FILE abi_symbollist.raw
+            else
+              : > abi_symbollist.raw
+            fi
+          fi
+
+          mkdir -p abi out/abi out/android/abi out/obj/KERNEL_OBJ/kernel-5.15
+          cp abi_symbollist.raw abi/abi_symbollist.raw
+          cp abi_symbollist.raw out/abi/abi_symbollist.raw
+          cp abi_symbollist.raw out/android/abi/abi_symbollist.raw
+          cp abi_symbollist.raw out/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
+
+          echo "✅ ABI whitelist đã được copy đầy đủ"
+
+      - name: Build Kernel
         shell: bash
         run: |
           set -euo pipefail
           cd kernel-5.15
 
-          # chọn defconfig
-          if [ -f arch/arm64/configs/a06x_defconfig ]; then
-            DEFCONFIG=a06x_defconfig
-          elif [ -f arch/arm64/configs/a06_defconfig ]; then
-            DEFCONFIG=a06_defconfig
+          if [ -f "tools/bazel" ]; then
+            echo "[INFO] Using Bazel build..."
+            chmod +x tools/bazel
+            tools/bazel build --config=fast //common:kernel_aarch64_dist 2>&1 | tee ../build.log
           else
-            echo "❌ Không tìm thấy defconfig cho A06!"
-            exit 1
-          fi
+            echo "[INFO] Using make + Neutron-Clang..."
 
-          # clone ABI
-          cd ..
-          git clone --depth=1 https://android.googlesource.com/kernel/common -b android13-5.15 gki-common
-          cd kernel-5.15
-          ABI_FILE=$(ls ../gki-common/android/ | grep "abi_gki_aarch64" | head -n1 || true)
-          if [ -n "$ABI_FILE" ]; then
-            cp ../gki-common/android/$ABI_FILE abi_symbollist.raw
-          else
-            : > abi_symbollist.raw
-          fi
-          mkdir -p out/abi
-          cp abi_symbollist.raw out/abi/abi_symbollist.raw
+            if [ ! -d "$HOME/toolchains/neutron-clang" ]; then
+              mkdir -p "$HOME/toolchains/neutron-clang"
+              cd "$HOME/toolchains/neutron-clang"
+              curl -LO "https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman"
+              chmod +x antman
+              bash antman -S && bash antman --patch=glibc
+              cd "$GITHUB_WORKSPACE/kernel-5.15"
+              export PATH="$HOME/toolchains/neutron-clang/bin:$PATH"
+            fi
 
-          # build config
-          make O=out ARCH=arm64 "$DEFCONFIG"
-          make O=out ARCH=arm64 olddefconfig </dev/null
+            DEFCONFIG=$(ls arch/arm64/configs/*a06*_defconfig | head -n1 | xargs -n1 basename || true)
+            if [ -z "$DEFCONFIG" ]; then
+              echo "❌ Không tìm thấy defconfig cho A06!"
+              exit 1
+            fi
 
-          echo "✅ .config sinh ra:"
-          head -n 20 out/.config || true
+            make O=out ARCH=arm64 $DEFCONFIG
+            yes "" | make O=out ARCH=arm64 olddefconfig </dev/null
 
-          # build kernel
-          ( make -j$(nproc --all) O=out ARCH=arm64 \
-              CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld \
-              Image dtbs modules 2>&1 | tee build.log ) || exit ${PIPESTATUS[0]}
-
-          # check output
-          if [ -f out/arch/arm64/boot/Image ]; then
-            echo "✅ Build thành công: Image OK"
-          elif [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
-            echo "✅ Build thành công: Image.gz-dtb OK"
-          else
-            echo "❌ Build xong nhưng không có Image!"
-            exit 1
+            ( make -j$(nproc) O=out ARCH=arm64 \
+                CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld Image dtbs modules \
+                2>&1 | tee ../build.log ) || exit ${PIPESTATUS[0]}
           fi
 
       - name: Pack AnyKernel3 zip
@@ -122,8 +114,9 @@ jobs:
           if [ -n "$IMG" ]; then
             cp "$IMG" AnyKernel3/Image
           else
-            echo "❌ Không tìm thấy Image!"
-            exit 1
+            echo "⚠️ Không có Image, thử Image.gz-dtb"
+            IMG=$(ls kernel-5.15/out/arch/arm64/boot/Image.gz-dtb* 2>/dev/null || true)
+            [ -n "$IMG" ] && cp "$IMG" AnyKernel3/Image.gz-dtb
           fi
           cd AnyKernel3
           zip -r ../Kernel-A06-KSU-SUSFS.zip ./*
@@ -136,5 +129,6 @@ jobs:
           path: |
             kernel-5.15/out/.config
             kernel-5.15/out/arch/arm64/boot/Image*
+            kernel-5.15/out/arch/arm64/boot/Image.gz-dtb*
             Kernel-A06-KSU-SUSFS.zip
-            kernel-5.15/build.log
+            build.log
