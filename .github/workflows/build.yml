@@ -59,7 +59,6 @@ jobs:
         run: |
           set -eux
           cd kernel-5.15
-          # KSU-Next (nhánh next)
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s -- -s next
 
       - name: Apply SUSFS patches
@@ -119,14 +118,23 @@ jobs:
           cp abi_symbollist.raw out/abi/abi_symbollist.raw
           cp abi_symbollist.raw out/android/abi/abi_symbollist.raw
           cp abi_symbollist.raw out/obj/KERNEL_OBJ/kernel-5.15/abi_symbollist.raw
+          # 👉 FIX: thêm 2 path tuyệt đối hay bị hard-code bởi vendor (log của bạn)
+          for prod in a06x a06; do
+            ABS="/home/dpi/qb5_8814/workspace/P4_1716/android/out/target/product/${prod}/obj/KERNEL_OBJ/kernel-5.15"
+            sudo mkdir -p "$ABS"
+            sudo install -m 0644 abi_symbollist.raw "$ABS/abi_symbollist.raw"
+          done
 
           echo "📎 ABI files:"
           find . -name "abi_symbollist.raw" -ls || true
 
           echo "🔹 Generate .config (non-interactive)…"
+          # 👉 FIX: tránh Permission denied + dùng clang ngay từ bước config
           chmod +x -R ./scripts || true
-          make O=out ARCH=arm64 "$DEFCONFIG"
-          yes "" | make O=out ARCH=arm64 olddefconfig </dev/null
+          MAKEVARS="O=out ARCH=arm64 CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld"
+          make $MAKEVARS "$DEFCONFIG"
+          # 👉 FIX: bỏ hẳn 'yes' để hết Broken pipe
+          make $MAKEVARS olddefconfig </dev/null
 
           echo "🔹 Enable KSU + SUSFS + LTO Thin + Net/BBR + LOCALVERSION…"
           ./scripts/config --file out/.config \
@@ -145,33 +153,25 @@ jobs:
             -e KSU_SUSFS_ENABLE_LOG \
             -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
             -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
-            -e KSU_SUSFS_OPEN_REDIRECT \
-            || true
-          # KernelSU-Next: khuyến nghị tắt kprobes hook
+            -e KSU_SUSFS_OPEN_REDIRECT || true
           ./scripts/config --file out/.config -d KSU_KPROBES_HOOK || true
-          # LTO Thin + tối ưu compile
           ./scripts/config --file out/.config \
             -e LTO_CLANG -e LTO_CLANG_THIN \
             -e CC_OPTIMIZE_FOR_PERFORMANCE \
-            -d CC_OPTIMIZE_FOR_PERFORMANCE_O3 \
-            || true
-          # Net/BBR
+            -d CC_OPTIMIZE_FOR_PERFORMANCE_O3 || true
           ./scripts/config --file out/.config \
             -e TCP_CONG_ADVANCED -e TCP_CONG_BBR -e NET_SCH_FQ || true
-          # LOCALVERSION để dễ nhận diện build
           ./scripts/config --file out/.config \
             --set-str LOCALVERSION "-A06GKI-5.15.151-KSUNext-SUSFS" || true
 
           echo "🔹 Merge lại config…"
-          yes "" | make O=out ARCH=arm64 olddefconfig </dev/null
+          make $MAKEVARS olddefconfig </dev/null
 
           echo "✅ .config (head):"
           head -n 50 out/.config || true
 
           echo "🚀 Build kernel (ghi log & giữ exit code)…"
-          ( make -j"$(nproc --all)" O=out ARCH=arm64 \
-              CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld \
-              Image dtbs modules 2>&1 | tee build.log ); test ${PIPESTATUS[0]} -eq 0
+          ( make -j"$(nproc --all)" $MAKEVARS Image dtbs modules 2>&1 | tee build.log ); test ${PIPESTATUS[0]} -eq 0
 
           echo "🔎 Kiểm tra output…"
           if [ -f out/arch/arm64/boot/Image ]; then
@@ -184,13 +184,12 @@ jobs:
           fi
 
           echo "📝 Lưu tuned defconfig để debug (tuỳ chọn)…"
-          make O=out ARCH=arm64 savedefconfig || true
+          make $MAKEVARS savedefconfig || true
           cp out/defconfig out/a06_tuned_defconfig || true
 
       - name: Pack AnyKernel3
         run: |
           set -eux
-          # Ưu tiên Image*
           IMG=$(ls kernel-5.15/out/arch/arm64/boot/Image* 2>/dev/null | head -n1 || true)
           if [ -z "$IMG" ]; then
             echo "⚠️ Không có Image* → thử tarballs"
@@ -204,11 +203,8 @@ jobs:
           else
             cp "$IMG" AnyKernel3/Image
           fi
-
-          # Copy dtb, dtbo nếu có
           (cd kernel-5.15/out/arch/arm64/boot && cp -r dtb* ../../../../AnyKernel3/ || true)
           (cd kernel-5.15/out/arch/arm64/boot && cp -r dtbo* ../../../../AnyKernel3/ || true)
-
           cd AnyKernel3
           zip -r ../Kernel-A06-5.15.151-KSU-Next-SUSFS.zip ./*
 
