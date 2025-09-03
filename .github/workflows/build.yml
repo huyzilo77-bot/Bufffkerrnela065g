@@ -28,6 +28,25 @@ jobs:
           mkdir kernel-5.15
           tar -xf kernel.tar -C kernel-5.15 --strip-components=1
 
+      - name: Install clang-16 + Fix script permissions
+        run: |
+          sudo apt update
+          sudo apt install -y llvm-16 clang-16 lld-16
+
+          # update-alternatives để ép kernel dùng clang-16
+          sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-16 100
+          sudo update-alternatives --install /usr/bin/ld.lld ld.lld /usr/bin/lld-16 100
+          sudo update-alternatives --install /usr/bin/llvm-ar llvm-ar /usr/bin/llvm-ar-16 100
+          sudo update-alternatives --install /usr/bin/llvm-nm llvm-nm /usr/bin/llvm-nm-16 100
+          sudo update-alternatives --install /usr/bin/llvm-objcopy llvm-objcopy /usr/bin/llvm-objcopy-16 100
+          sudo update-alternatives --install /usr/bin/llvm-objdump llvm-objdump /usr/bin/llvm-objdump-16 100
+          sudo update-alternatives --install /usr/bin/llvm-strip llvm-strip /usr/bin/llvm-strip-16 100
+
+          # fix quyền script kernel
+          cd kernel-5.15 || true
+          chmod +x -R ./scripts || true
+          cd ..
+
       - name: Clone utilities (AnyKernel3 & SUSFS)
         run: |
           git clone https://github.com/osm0sis/AnyKernel3.git AnyKernel3
