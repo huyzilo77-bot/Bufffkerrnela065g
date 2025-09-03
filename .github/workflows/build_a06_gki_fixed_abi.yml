@@ -107,41 +107,65 @@ jobs:
           ./scripts/config --file out/.config -d KSU_KPROBES_HOOK || true
           make O=out ARCH=arm64 olddefconfig
 
-      - name: Build Kernel
+      - name: Build Kernel (Samsung build.sh)
         run: |
           set -eux
           cd kernel-5.15
-          ( make -j$(nproc --all) O=out ARCH=arm64 \
-            CC=clang CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
-            LD=ld.lld \
-            Image.gz-dtb dtbs modules 2>&1 | tee build.log )
-          test ${PIPESTATUS[0]} -eq 0
-          ls -la out/arch/arm64/boot || true
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_COMPAT=arm-linux-gnueabi-
+          export CC=clang
+          export LD=ld.lld
+
+          # OUT & DIST
+          export OUT_DIR=out
+          export DIST_DIR=dist
+          mkdir -p $OUT_DIR $DIST_DIR
+
+          # chọn defconfig
+          if [ -f arch/arm64/configs/a06x_00_defconfig ]; then
+            DEFCONFIG=a06x_00_defconfig
+          elif [ -f arch/arm64/configs/a06x_defconfig ]; then
+            DEFCONFIG=a06x_defconfig
+          else
+            DEFCONFIG=gki_defconfig
+          fi
+
+          echo "Using DEFCONFIG=$DEFCONFIG"
+
+          # chạy build.sh
+          BUILD_CONFIG=arch/arm64/configs/$DEFCONFIG \
+          ./build/build.sh -j$(nproc --all) 2>&1 | tee ../build.log
+
+          ls -la $DIST_DIR || true
 
       - name: Pack AnyKernel3 zip
         run: |
           set -eux
-          OUTDIR=kernel-5.15/out/arch/arm64/boot
+          DIST=kernel-5.15/dist
           IMG=""
-          if [ -f "$OUTDIR/Image.gz-dtb" ]; then
-            IMG="$OUTDIR/Image.gz-dtb"
-          elif [ -f "$OUTDIR/Image.gz" ]; then
-            IMG="$OUTDIR/Image.gz"
-          elif [ -f "$OUTDIR/Image" ]; then
-            IMG="$OUTDIR/Image"
+          if [ -f "$DIST/Image.lz4" ]; then
+            IMG="$DIST/Image.lz4"
+          elif [ -f "$DIST/Image.gz-dtb" ]; then
+            IMG="$DIST/Image.gz-dtb"
+          elif [ -f "$DIST/Image.gz" ]; then
+            IMG="$DIST/Image.gz"
+          elif [ -f "$DIST/Image" ]; then
+            IMG="$DIST/Image"
           fi
 
           if [ -z "$IMG" ]; then
-            echo "❌ Kernel Image not found!"
+            echo "❌ Không tìm thấy kernel Image trong $DIST"
             exit 1
           fi
 
           cp "$IMG" AnyKernel3/zImage
-          (cd $OUTDIR && cp -r dtb* ../../../../AnyKernel3/ || true)
-          (cd $OUTDIR && cp -r dtbo* ../../../../AnyKernel3/ || true)
+          (cd $DIST && cp -r dtb* ../../AnyKernel3/ || true)
+          (cd $DIST && cp -r dtbo* ../../AnyKernel3/ || true)
 
           cd AnyKernel3
-          zip -r ../Kernel-A06-5.15-KSU-SUSFS.zip ./*
+          zip -r ../Kernel-A06-5.15.151-KSU-SUSFS.zip ./*
 
       - name: Patch init_boot.img
         run: |
