@@ -40,15 +40,15 @@ jobs:
             python3 python-is-python3 \
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
             gcc-arm-linux-gnueabi g++-arm-linux-gnueabi \
-            pahole
+            pahole ccache
           sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-16 100
           sudo update-alternatives --install /usr/bin/ld.lld ld.lld /usr/bin/lld-16 100
-          
-          - name: Setup ccache
+
+      - name: Setup ccache
         run: |
           export USE_CCACHE=1
-          ccache -M 10G    # Giới hạn dung lượng cache 10GB
-          ccache -z        # Reset stats để theo dõi run này
+          ccache -M 10G
+          ccache -z
 
       - name: Cache ccache
         uses: actions/cache@v4
@@ -57,23 +57,21 @@ jobs:
           key: ${{ runner.os }}-ccache-${{ github.ref }}
           restore-keys: |
             ${{ runner.os }}-ccache-
-         
+
       - name: Download Kernel Source (Samsung A06 Release)
         run: |
           set -eux
           wget -O source.zip "https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/A066B-5G.zip"
           unzip -q source.zip
 
-          echo " Sau khi giải nén source.zip:"
+          echo "📂 Sau khi giải nén source.zip:"
           ls -la
 
-          # Giải nén Kernel.tar.gz để lấy mã nguồn thật
           tar -xvf Kernel.tar.gz
 
-          echo " Sau khi giải nén Kernel.tar.gz:"
+          echo "📂 Sau khi giải nén Kernel.tar.gz:"
           ls -la
 
-          # Kiểm tra thư mục kernel-5.15 đã tồn tại chưa
           if [ -d kernel-5.15 ]; then
             echo "✅ Đã tìm thấy kernel-5.15"
           else
@@ -87,7 +85,7 @@ jobs:
 
           chmod +x -R kernel-5.15
 
-          echo " Cấu trúc trong kernel-5.15:"
+          echo "📂 Cấu trúc trong kernel-5.15:"
           ls -la kernel-5.15
 
       - name: Clone AnyKernel3 & SUSFS
@@ -145,7 +143,7 @@ jobs:
           ./scripts/config --file out/.config -e KSU -e KSU_SUSFS || true
           ./scripts/config --file out/.config -d KSU_KPROBES_HOOK || true
           make O=out ARCH=arm64 olddefconfig
-    
+
       - name: Fake prebuilts NDK
         run: |
           echo "⚡ Fake NDK để Samsung build.sh không báo lỗi"
@@ -156,7 +154,6 @@ jobs:
           ln -sf /usr/bin/ld.lld-16 prebuilts/ndk/linux-x86/ld.lld
           ln -sf /usr/bin/aarch64-linux-gnu-gcc prebuilts/ndk/linux-x86/aarch64-linux-gnu-gcc
           ln -sf /usr/bin/aarch64-linux-gnu-ld prebuilts/ndk/linux-x86/aarch64-linux-gnu-ld
-          echo "📂 Nội dung fake prebuilts/ndk/linux-x86:"
           ls -la prebuilts/ndk/linux-x86
 
       - name: Build Kernel (Samsung build.sh)
@@ -180,20 +177,12 @@ jobs:
           cd ../kernel
           ./build/build.sh -j$(nproc --all) 2>&1 | tee ../build.log
 
-      - name: Debug arch/arm64/boot sau khi build
-        run: |
-          echo "📂 Nội dung trong OUT_DIR/arch/arm64/boot/"
-          ls -la out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot || true
-          echo "🔎 Tìm Image* trong OUT_DIR/arch/arm64/boot/"
-          find out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot -type f -name "Image*" || true
-
       - name: Đóng gói AnyKernel3 (KernelSU + SUSFS)
         run: |
           set -eux
           OUT_BASE="out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot"
           DATE=$(date +%Y%m%d-%H%M)
 
-          # Ưu tiên theo build.config của A06 (Image.lz4)
           if [ -f "$OUT_BASE/Image.lz4" ]; then
             IMG="$OUT_BASE/Image.lz4"
           elif [ -f "$OUT_BASE/Image.gz-dtb" ]; then
@@ -204,7 +193,6 @@ jobs:
             IMG="$OUT_BASE/Image"
           else
             echo "❌ Không tìm thấy kernel Image trong $OUT_BASE"
-            echo "📂 Các file hiện có:"
             find "$OUT_BASE" -type f -name "Image*" || true
             exit 1
           fi
@@ -212,34 +200,13 @@ jobs:
           echo "✅ Đã tìm thấy kernel Image: $IMG"
           cp "$IMG" AnyKernel3/Image || true
 
-          # Copy dtbo nếu có
           DTBO=$(find out/target/product/a06x/obj/KERNEL_OBJ -type f -name "dtbo*" | head -n1 || true)
-          if [ -n "$DTBO" ]; then
-            echo "✅ Đã tìm thấy DTBO: $DTBO"
-            cp "$DTBO" AnyKernel3/ || true
-          else
-            echo "⚠️ Không tìm thấy dtbo, bỏ qua."
-          fi
+          [ -n "$DTBO" ] && cp "$DTBO" AnyKernel3/ || true
 
-          # Đóng gói thành zip
           cd AnyKernel3
           ZIPNAME="../Kernel-A06-5.15.151-KSU-SUSFS-${DATE}.zip"
           zip -r9 "$ZIPNAME" . -x .git README.md *.zip
           echo "ZIPNAME=$ZIPNAME" >> $GITHUB_ENV
-
-      - name: Upload arch/arm64/boot outputs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: A06-boot-outputs-${{ github.run_number }}
-          path: out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot/*
-
-      - name: Upload kernel .config
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: A06-kernel-config-${{ github.run_number }}
-          path: out/target/product/a06x/obj/KERNEL_OBJ/.config
 
       - name: Upload Kernel Zip
         if: always()
