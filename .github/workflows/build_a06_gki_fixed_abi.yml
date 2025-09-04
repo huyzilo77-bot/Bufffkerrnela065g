@@ -138,18 +138,18 @@ jobs:
           export USE_CCACHE=1
           ccache -M 5G
 
-      - name: Clone Android prebuilts (mirror)
+      - name: Fake prebuilts NDK
         run: |
-          rm -rf prebuilts
-          git clone https://github.com/chrissicool/android_prebuilts_android.git
-          mv android_prebuilts_android/prebuilts prebuilts
-
-      - name: Debug prebuilts tree
-        run: |
-          echo " Nội dung thư mục prebuilts:"
-          ls -la prebuilts
-          echo " Nội dung thư mục prebuilts/ndk:"
-          ls -la prebuilts/ndk || true
+          echo "⚡ Fake NDK để Samsung build.sh không báo lỗi"
+          rm -rf prebuilts/ndk
+          mkdir -p prebuilts/ndk/linux-x86
+          ln -sf /usr/bin/clang-16 prebuilts/ndk/linux-x86/clang
+          ln -sf /usr/bin/clang++-16 prebuilts/ndk/linux-x86/clang++
+          ln -sf /usr/bin/ld.lld-16 prebuilts/ndk/linux-x86/ld.lld
+          ln -sf /usr/bin/aarch64-linux-gnu-gcc prebuilts/ndk/linux-x86/aarch64-linux-gnu-gcc
+          ln -sf /usr/bin/aarch64-linux-gnu-ld prebuilts/ndk/linux-x86/aarch64-linux-gnu-ld
+          echo "📂 Nội dung fake prebuilts/ndk/linux-x86:"
+          ls -la prebuilts/ndk/linux-x86
 
       - name: Build Kernel (Samsung build.sh)
         run: |
@@ -172,18 +172,11 @@ jobs:
           cd ../kernel
           ./build/build.sh -j$(nproc --all) 2>&1 | tee ../build.log
 
-      - name: Upload build.log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: kernel-build-log
-          path: build.log
-
       - name: Debug arch/arm64/boot sau khi build
         run: |
-          echo " Nội dung trong OUT_DIR/arch/arm64/boot/"
+          echo "📂 Nội dung trong OUT_DIR/arch/arm64/boot/"
           ls -la out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot || true
-          echo " Tìm Image* trong OUT_DIR/arch/arm64/boot/"
+          echo "🔎 Tìm Image* trong OUT_DIR/arch/arm64/boot/"
           find out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot -type f -name "Image*" || true
 
       - name: Đóng gói AnyKernel3 (KernelSU + SUSFS)
@@ -196,21 +189,23 @@ jobs:
             IMG="$OUT_BASE/Image.lz4"
           elif [ -f "$OUT_BASE/Image.gz" ]; then
             IMG="$OUT_BASE/Image.gz"
+          elif [ -f "$OUT_BASE/Image" ]; then
+            IMG="$OUT_BASE/Image"
           else
             echo "❌ Không tìm thấy kernel Image trong $OUT_BASE"
-            find $OUT_BASE -type f -name "Image*"
+            find "$OUT_BASE" -type f -name "Image*"
             exit 1
           fi
 
           echo "✅ Đã tìm thấy kernel Image: $IMG"
-
           cp "$IMG" AnyKernel3/Image || true
+
           DTBO=$(find out/target/product/a06x/obj/KERNEL_OBJ -type f -name "dtbo*" | head -n1 || true)
           [ -n "$DTBO" ] && cp "$DTBO" AnyKernel3/ || true
 
           cd AnyKernel3
           ZIPNAME="../Kernel-A06-5.15.151-KSU-SUSFS-${DATE}.zip"
-          zip -r9 "$ZIPNAME" . –x .git README.md *.zip
+          zip -r9 "$ZIPNAME" . -x .git README.md *.zip
           echo "ZIPNAME=$ZIPNAME" >> $GITHUB_ENV
 
       - name: Upload build outputs
@@ -221,11 +216,4 @@ jobs:
           path: |
             build.log
             ${{ env.ZIPNAME }}
-
-      - name: Echo artifact info
-        if: always()
-        run: |
-          echo "✅ Artifact đã upload:"
-          echo " Tên: Kernel-A06-build-output-${{ github.run_number }}"
-          echo " File: ${{ env.ZIPNAME }} + build.log"
-          echo " Vào tab 'Artifacts' trong workflow run để tải về."
+            out/target/product/a06x/obj/KERNEL_OBJ/.config
