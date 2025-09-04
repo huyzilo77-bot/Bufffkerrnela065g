@@ -1,14 +1,17 @@
----
 name: Build Samsung A06 5G Kernel 5.15 (KSU + SUSFS)
+
 on:
-  workflow_dispatch: null
+  workflow_dispatch:
+
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 150
+
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+
       - name: Free up disk space
         uses: AdityaGarg8/remove-unwanted-software@v5
         with:
@@ -20,18 +23,14 @@ jobs:
           remove-large-packages: true
           remove-swapfile: true
           verbose: true
+
       - name: Install deps & toolchains
-        run: >
+        run: |
           set -eux
-
           sudo apt update
-
           sudo apt install -y software-properties-common
-
           sudo add-apt-repository ppa:ubuntu-toolchain-r/test -y
-
           sudo apt update
-
           sudo apt install -y \
             git curl wget unzip zip xz-utils zstd \
             build-essential bc bison flex \
@@ -43,34 +42,24 @@ jobs:
             gcc-arm-linux-gnueabi g++-arm-linux-gnueabi \
             pahole
           sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-16 100
-
           sudo update-alternatives --install /usr/bin/ld.lld ld.lld /usr/bin/lld-16 100
+
       - name: Download Kernel Source (Samsung A06 Release)
-        run: >
+        run: |
           set -eux
-
           wget -O source.zip "https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/A066B-5G.zip"
-
           unzip -q source.zip
 
-
-          echo "📂 Sau khi giải nén source.zip:"
-
+          echo " Sau khi giải nén source.zip:"
           ls -la
-
 
           # Giải nén Kernel.tar.gz để lấy mã nguồn thật
-
           tar -xvf Kernel.tar.gz
 
-
-          echo "📂 Sau khi giải nén Kernel.tar.gz:"
-
+          echo " Sau khi giải nén Kernel.tar.gz:"
           ls -la
 
-
           # Kiểm tra thư mục kernel-5.15 đã tồn tại chưa
-
           if [ -d kernel-5.15 ]; then
             echo "✅ Đã tìm thấy kernel-5.15"
           else
@@ -82,33 +71,29 @@ jobs:
             mv "$SRC_DIR" kernel-5.15
           fi
 
-
           chmod +x -R kernel-5.15
 
-
-          echo "📂 Cấu trúc trong kernel-5.15:"
-
+          echo " Cấu trúc trong kernel-5.15:"
           ls -la kernel-5.15
+
       - name: Clone AnyKernel3 & SUSFS
-        run: >
+        run: |
           git clone https://github.com/osm0sis/AnyKernel3.git AnyKernel3
-
           git clone -b gki-android13-5.15 https://gitlab.com/simonpunk/susfs4ksu.git susfs
-      - name: Apply KernelSU-Next
-        run: >
-          cd kernel-5.15
 
+      - name: Apply KernelSU-Next
+        run: |
+          cd kernel-5.15
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" \
             | bash -s -- -s next
+
       - name: Apply SUSFS patches
-        run: >
+        run: |
           cd kernel-5.15
-
           patch -p1 --forward < ../susfs/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch || true
-
           cp -r ../susfs/kernel_patches/fs/* fs/ || true
-
           cp -r ../susfs/kernel_patches/include/linux/* include/linux/ || true
+
       - name: Fix Kconfig encoding
         run: |
           cd kernel-5.15
@@ -116,12 +101,11 @@ jobs:
             xargs -0 sed -i "s/’/'/g; s/‘/'/g"
           find drivers -name "Kconfig*" -type f -print0 | \
             xargs -0 perl -i -pe 's/\x{00A0}/ /g; s/\x{FEFF}//g; s/\r$//'
+
       - name: Select defconfig & fetch ABI
-        run: >
+        run: |
           set -eux
-
           cd kernel-5.15
-
 
           if [ -f arch/arm64/configs/a06x_00_defconfig ]; then
             DEFCONFIG=a06x_00_defconfig
@@ -130,32 +114,22 @@ jobs:
           else
             DEFCONFIG=gki_defconfig
           fi
-
           echo "✅ DEFCONFIG=$DEFCONFIG"
 
-
           git clone --depth=1 https://android.googlesource.com/kernel/common -b android13-5.15 gki-common
-
           ABI=$(ls gki-common/android/ | grep -E "abi_gki_aarch64_" | head -n1 || true)
 
-
           mkdir -p out
-
           if [ -n "$ABI" ]; then
             cp "gki-common/android/$ABI" out/abi_symbollist.raw
           else
             echo "" > out/abi_symbollist.raw
           fi
 
-
           make O=out ARCH=arm64 $DEFCONFIG
-
           make O=out ARCH=arm64 olddefconfig
-
           ./scripts/config --file out/.config -e KSU -e KSU_SUSFS || true
-
           ./scripts/config --file out/.config -d KSU_KPROBES_HOOK || true
-
           make O=out ARCH=arm64 olddefconfig
 
       - name: Setup ccache
@@ -165,17 +139,17 @@ jobs:
           ccache -M 5G
 
       - name: Clone Android prebuilts (mirror)
-  run: |
-    rm -rf prebuilts
-    git clone https://github.com/chrissicool/android_prebuilts_android.git
-    mv android_prebuilts_android/prebuilts prebuilts
+        run: |
+          rm -rf prebuilts
+          git clone https://github.com/chrissicool/android_prebuilts_android.git
+          mv android_prebuilts_android/prebuilts prebuilts
 
-- name: Debug prebuilts tree
-  run: |
-    echo "📂 Nội dung thư mục prebuilts:"
-    ls -la prebuilts
-    echo "📂 Nội dung thư mục prebuilts/ndk:"
-    ls -la prebuilts/ndk || true
+      - name: Debug prebuilts tree
+        run: |
+          echo " Nội dung thư mục prebuilts:"
+          ls -la prebuilts
+          echo " Nội dung thư mục prebuilts/ndk:"
+          ls -la prebuilts/ndk || true
 
       - name: Build Kernel (Samsung build.sh)
         run: |
@@ -207,9 +181,9 @@ jobs:
 
       - name: Debug arch/arm64/boot sau khi build
         run: |
-          echo "📂 Nội dung trong OUT_DIR/arch/arm64/boot/"
+          echo " Nội dung trong OUT_DIR/arch/arm64/boot/"
           ls -la out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot || true
-          echo "🔎 Tìm Image* trong OUT_DIR/arch/arm64/boot/"
+          echo " Tìm Image* trong OUT_DIR/arch/arm64/boot/"
           find out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot -type f -name "Image*" || true
 
       - name: Đóng gói AnyKernel3 (KernelSU + SUSFS)
@@ -218,7 +192,6 @@ jobs:
           OUT_BASE="out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot"
           DATE=$(date +%Y%m%d-%H%M)
 
-          # Ưu tiên Image.lz4, fallback sang Image.gz
           if [ -f "$OUT_BASE/Image.lz4" ]; then
             IMG="$OUT_BASE/Image.lz4"
           elif [ -f "$OUT_BASE/Image.gz" ]; then
@@ -231,17 +204,13 @@ jobs:
 
           echo "✅ Đã tìm thấy kernel Image: $IMG"
 
-          # Copy vào AnyKernel3
           cp "$IMG" AnyKernel3/Image || true
-
-          # Copy dtbo nếu có
           DTBO=$(find out/target/product/a06x/obj/KERNEL_OBJ -type f -name "dtbo*" | head -n1 || true)
           [ -n "$DTBO" ] && cp "$DTBO" AnyKernel3/ || true
 
-          # Đóng gói thành zip với timestamp
           cd AnyKernel3
           ZIPNAME="../Kernel-A06-5.15.151-KSU-SUSFS-${DATE}.zip"
-          zip -r9 "$ZIPNAME" . -x .git README.md *.zip
+          zip -r9 "$ZIPNAME" . –x .git README.md *.zip
           echo "ZIPNAME=$ZIPNAME" >> $GITHUB_ENV
 
       - name: Upload build outputs
@@ -257,6 +226,6 @@ jobs:
         if: always()
         run: |
           echo "✅ Artifact đã upload:"
-          echo "   🔗 Tên: Kernel-A06-build-output-${{ github.run_number }}"
-          echo "   📦 File: ${{ env.ZIPNAME }} + build.log"
-          echo "👉 Vào tab 'Artifacts' trong workflow run để tải về."
+          echo " Tên: Kernel-A06-build-output-${{ github.run_number }}"
+          echo " File: ${{ env.ZIPNAME }} + build.log"
+          echo " Vào tab 'Artifacts' trong workflow run để tải về."
