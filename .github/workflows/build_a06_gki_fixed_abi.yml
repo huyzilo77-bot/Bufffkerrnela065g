@@ -43,7 +43,21 @@ jobs:
             pahole
           sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-16 100
           sudo update-alternatives --install /usr/bin/ld.lld ld.lld /usr/bin/lld-16 100
+          
+          - name: Setup ccache
+        run: |
+          export USE_CCACHE=1
+          ccache -M 10G    # Giới hạn dung lượng cache 10GB
+          ccache -z        # Reset stats để theo dõi run này
 
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-ccache-${{ github.ref }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-
+         
       - name: Download Kernel Source (Samsung A06 Release)
         run: |
           set -eux
@@ -131,13 +145,7 @@ jobs:
           ./scripts/config --file out/.config -e KSU -e KSU_SUSFS || true
           ./scripts/config --file out/.config -d KSU_KPROBES_HOOK || true
           make O=out ARCH=arm64 olddefconfig
-
-      - name: Setup ccache
-        run: |
-          sudo apt install -y ccache
-          export USE_CCACHE=1
-          ccache -M 5G
-
+    
       - name: Fake prebuilts NDK
         run: |
           echo "⚡ Fake NDK để Samsung build.sh không báo lỗi"
@@ -233,11 +241,37 @@ jobs:
           name: A06-kernel-config-${{ github.run_number }}
           path: out/target/product/a06x/obj/KERNEL_OBJ/.config
 
-      - name: Upload build outputs
+      - name: Upload Kernel Zip
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Kernel-A06-build-output-${{ github.run_number }}
-          path: |
-            build.log
-            ${{ env.ZIPNAME }}
+          name: Kernel-A06-Zip-${{ github.run_number }}
+          path: ${{ env.ZIPNAME }}
+
+      - name: Upload Boot Outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kernel-A06-Boot-Outputs-${{ github.run_number }}
+          path: out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot/*
+
+      - name: Upload Kernel Config
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kernel-A06-Config-${{ github.run_number }}
+          path: out/target/product/a06x/obj/KERNEL_OBJ/.config
+
+      - name: Upload ABI Symbollist
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kernel-A06-ABI-${{ github.run_number }}
+          path: out/target/product/a06x/obj/KERNEL_OBJ/abi_symbollist.raw
+
+      - name: Upload Build Log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kernel-A06-BuildLog-${{ github.run_number }}
+          path: build.log
