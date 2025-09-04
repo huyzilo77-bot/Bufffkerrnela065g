@@ -196,9 +196,9 @@ jobs:
           name: kernel-build-log
           path: build.log
 
-      - name: Debug kiểm tra arch/arm64/boot sau khi build
+      - name: Debug arch/arm64/boot sau khi build
         run: |
-          echo "📂 Liệt kê file trong OUT_DIR/arch/arm64/boot/"
+          echo "📂 Nội dung trong OUT_DIR/arch/arm64/boot/"
           ls -la out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot || true
           echo "🔎 Tìm Image* trong OUT_DIR/arch/arm64/boot/"
           find out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot -type f -name "Image*" || true
@@ -206,27 +206,49 @@ jobs:
       - name: Đóng gói AnyKernel3 (KernelSU + SUSFS)
         run: |
           set -eux
-          IMG="out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot/Image.lz4"
+          OUT_BASE="out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot"
+          DATE=$(date +%Y%m%d-%H%M)
 
-          if [ ! -f "$IMG" ]; then
-            echo "❌ Không tìm thấy $IMG"
-            find out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot -type f -name "Image*"
+          # Ưu tiên Image.lz4, fallback sang Image.gz
+          if [ -f "$OUT_BASE/Image.lz4" ]; then
+            IMG="$OUT_BASE/Image.lz4"
+          elif [ -f "$OUT_BASE/Image.gz" ]; then
+            IMG="$OUT_BASE/Image.gz"
+          else
+            echo "❌ Không tìm thấy kernel Image trong $OUT_BASE"
+            find $OUT_BASE -type f -name "Image*"
             exit 1
           fi
 
           echo "✅ Đã tìm thấy kernel Image: $IMG"
 
+          # Copy vào AnyKernel3
           cp "$IMG" AnyKernel3/Image || true
+
+          # Copy dtbo nếu có
           DTBO=$(find out/target/product/a06x/obj/KERNEL_OBJ -type f -name "dtbo*" | head -n1 || true)
           [ -n "$DTBO" ] && cp "$DTBO" AnyKernel3/ || true
 
+          # Đóng gói thành zip với timestamp
           cd AnyKernel3
-          zip -r9 "../Kernel-A06-5.15.151-KSU-SUSFS.zip" . -x .git README.md *.zip
+          ZIPNAME="../Kernel-A06-5.15.151-KSU-SUSFS-${DATE}.zip"
+          zip -r9 "$ZIPNAME" . -x .git README.md *.zip
+          echo "ZIPNAME=$ZIPNAME" >> $GITHUB_ENV
 
-      - name: Upload Artifact
+      - name: Upload build outputs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Kernel-A06-5.15.151-KSU-SUSFS
-          path: Kernel-A06-5.15.151-KSU-SUSFS.zip
+          name: Kernel-A06-build-output-${{ github.run_number }}
+          path: |
+            build.log
+            ${{ env.ZIPNAME }}
+
+      - name: Echo artifact info
+        if: always()
+        run: |
+          echo "✅ Artifact đã upload:"
+          echo "   🔗 Tên: Kernel-A06-build-output-${{ github.run_number }}"
+          echo "   📦 File: ${{ env.ZIPNAME }} + build.log"
+          echo "👉 Vào tab 'Artifacts' trong workflow run để tải về."
           
