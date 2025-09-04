@@ -1,38 +1,28 @@
-name: Build Samsung A06 5G Kernel 5.15 (KSU + SUSFS)
+name: Build Samsung A06 GKI Kernel
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 150
-    
+    runs-on: ubuntu-22.04
+
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
 
       - name: Free up disk space
-        uses: AdityaGarg8/remove-unwanted-software@v5
-        with:
-          remove-android: true
-          remove-dotnet: true
-          remove-haskell: true
-          remove-codeql: true
-          remove-docker-images: true
-          remove-large-packages: true
-          remove-swapfile: true
-          verbose: true
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo apt-get clean
+          df -h
 
       - name: Install deps & toolchains
         run: |
-          set -eux
-          sudo apt update
-          sudo apt install -y \
-            git wget curl build-essential bc bison flex libssl-dev \
-            libelf-dev ccache unzip python3 clang llvm lld dos2unix
+          sudo apt-get update
+          sudo apt-get install -y git wget curl unzip bc build-essential ccache \
+            flex bison libssl-dev libncurses5-dev python3
 
-      # ✅ Setup ccache để tăng tốc build
       - name: Setup ccache
         run: |
           export USE_CCACHE=1
@@ -49,82 +39,55 @@ jobs:
 
       - name: Download Kernel Source (Samsung A06 Release)
         run: |
-          set -eux
-          wget -O source.zip "https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/A066B-5G.zip"
-          unzip -q source.zip
-
-          echo "📂 Sau khi giải nén source.zip:"
-          ls -la
-
-          # Giải nén Kernel.tar.gz để lấy mã nguồn thật
-          tar -xvf Kernel.tar.gz
-
-          echo "📂 Sau khi giải nén Kernel.tar.gz:"
-          ls -la
-
-          # Kiểm tra thư mục kernel-5.15 đã tồn tại chưa
-          if [ -d kernel-5.15 ]; then
-            echo "✅ Đã tìm thấy kernel-5.15"
-          else
-            SRC_DIR=$(find . -maxdepth 1 -type d -name "SM-A066B*" | head -n 1 || true)
-            if [ -z "$SRC_DIR" ]; then
-              echo "❌ Không tìm thấy thư mục source sau khi giải nén!"
-              exit 1
-            fi
-            mv "$SRC_DIR" kernel-5.15
-          fi
-
-          chmod +x -R kernel-5.15
-
-          echo "📂 Cấu trúc trong kernel-5.15:"
-          ls -la kernel-5.15
+          git clone https://github.com/ravindu644/android_kernel_m145f_common.git kernel-5.15 --depth=1
 
       - name: Cache AnyKernel3 & SUSFS
-      uses: actions/cache@v4
-      with:
-        path: |
-          AnyKernel3
-          susfs
-        key: ${{ runner.os }}-anykernel3-${{ github.ref }}
-        restore-keys: |
-          ${{ runner.os }}-anykernel3-
+        uses: actions/cache@v4
+        with:
+          path: |
+            AnyKernel3
+            susfs
+          key: ${{ runner.os }}-anykernel3-${{ github.ref }}
+          restore-keys: |
+            ${{ runner.os }}-anykernel3-
 
-    - name: Clone/Update AnyKernel3 & SUSFS
-      run: |
-        if [ -d "AnyKernel3/.git" ]; then
-          echo "🔄 Updating AnyKernel3..."
-          cd AnyKernel3
-          git fetch --depth=1 origin
-          git reset --hard origin/master
-          cd ..
-        else
-          rm -rf AnyKernel3
-          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
-        fi
+      - name: Clone/Update AnyKernel3 & SUSFS
+        run: |
+          if [ -d "AnyKernel3/.git" ]; then
+            echo "🔄 Updating AnyKernel3..."
+            cd AnyKernel3
+            git fetch --depth=1 origin
+            git reset --hard origin/master
+            cd ..
+          else
+            rm -rf AnyKernel3
+            git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+          fi
 
-        if [ -d "susfs/.git" ]; then
-          echo "🔄 Updating SUSFS..."
-          cd susfs
-          git fetch --depth=1 origin
-          git reset --hard origin/master
-          cd ..
-        else
-          rm -rf susfs
-          git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git susfs
-        fi
+          if [ -d "susfs/.git" ]; then
+            echo "🔄 Updating SUSFS..."
+            cd susfs
+            git fetch --depth=1 origin
+            git reset --hard origin/master
+            cd ..
+          else
+            rm -rf susfs
+            git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git susfs
+          fi
 
-    - name: Apply KernelSU-Next
-      run: |
-        cd kernel-5.15
-        curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/main/kernel/setup.sh" | bash -s -- --with-susfs
+      - name: Apply KernelSU-Next
+        run: |
+          cd kernel-5.15
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/main/kernel/setup.sh" \
+            | bash -s -- --with-susfs
 
-    - name: Apply SUSFS patches
-      run: |
-        cp -r susfs/* kernel-5.15/ || true
+      - name: Apply SUSFS patches
+        run: |
+          cp -r susfs/* kernel-5.15/ || true
 
       - name: Select defconfig & fetch ABI
         run: |
-          cd kernel-src
+          cd kernel-5.15
           make ARCH=arm64 a06x_defconfig
 
       - name: Fake prebuilts NDK
@@ -134,15 +97,14 @@ jobs:
 
       - name: Build Kernel (Samsung build.sh)
         run: |
-          cd kernel-src
+          cd kernel-5.15
           bash build.sh
 
-      # ✅ Debug output tree để check file Image
       - name: Debug build tree
         run: |
           echo "📂 Kiểm tra dist/"
-          ls -R kernel-src/out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot || true
-          ls -R kernel-src/out/target/product/a06x/obj/KERNEL_OBJ/dist || true
+          ls -R kernel-5.15/out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot || true
+          ls -R kernel-5.15/out/target/product/a06x/obj/KERNEL_OBJ/dist || true
 
       - name: Verify KernelSU in config
         run: |
@@ -151,32 +113,15 @@ jobs:
           if grep -q "CONFIG_KSU=y" .config; then
             echo "✅ CONFIG_KSU đã được bật trong .config"
           else
-            echo "❌ CONFIG_KSU chưa bật trong .config"
+            echo "❌ CONFIG_KSU chưa bật!"
             exit 1
           fi
 
-      - name: Verify KernelSU in Image
+      - name: Package AnyKernel3 (KernelSU + SUSFS)
         run: |
           set -eux
-          IMG_PATH=$(find kernel-5.15/out/arch/arm64/boot -name "Image*" | head -n1 || true)
-          if [ -z "$IMG_PATH" ]; then
-            echo "❌ Không tìm thấy Image trong out/arch/arm64/boot"
-            exit 1
-          fi
-
-          if strings "$IMG_PATH" | grep -q "KernelSU"; then
-            echo "✅ KernelSU đã được nhúng vào kernel image"
-          else
-            echo "❌ KernelSU không tồn tại trong image"
-            exit 1
-          fi
-          
-      - name: Đóng gói AnyKernel3 (KernelSU + SUSFS)
-        run: |
-          set -eux
-          DIST_DIR=kernel-src/out/target/product/a06x/obj/KERNEL_OBJ/dist
+          DIST_DIR=kernel-5.15/out/target/product/a06x/obj/KERNEL_OBJ/dist
           IMG=""
-
           if [ -f "$DIST_DIR/Image.gz" ]; then
             IMG=$DIST_DIR/Image.gz
           elif [ -f "$DIST_DIR/Image.lz4" ]; then
@@ -196,36 +141,38 @@ jobs:
           cp -r $DIST_DIR/dtbo* AnyKernel3/ || true
 
           cd AnyKernel3
-          zip -r9 "../Kernel-A06-5.15.151-KSU-SUSFS.zip" . -x .git README.md *.zip
-          echo "ZIPNAME=Kernel-A06-5.15.151-KSU-SUSFS.zip" >> $GITHUB_ENV
+          zip -r9 "../Kernel-A06-5.15-KSU-SUSFS.zip" . -x .git README.md *.zip
 
-      # ✅ Upload Artifact chia nhỏ
       - name: Upload Kernel Zip
         uses: actions/upload-artifact@v4
         with:
           name: Kernel-Zip
-          path: Kernel-A06-5.15.151-KSU-SUSFS.zip
+          path: Kernel-A06-5.15-KSU-SUSFS.zip
 
       - name: Upload Boot Outputs
         uses: actions/upload-artifact@v4
         with:
           name: Boot-Outputs
-          path: kernel-src/out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot/*
+          path: kernel-5.15/out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot/*
 
       - name: Upload Kernel Config
         uses: actions/upload-artifact@v4
         with:
           name: Kernel-Config
-          path: kernel-src/.config
+          path: kernel-5.15/out/.config
 
       - name: Upload ABI Symbollist
         uses: actions/upload-artifact@v4
         with:
           name: ABI-Symbollist
-          path: kernel-src/android/abi_gki_aarch64*
+          path: kernel-5.15/out/abi_symbollist
 
       - name: Upload Build Log
         uses: actions/upload-artifact@v4
         with:
           name: Build-Log
-          path: kernel-src/build.log
+          path: kernel-5.15/out/build.log
+
+      - name: Post Cache ccache
+        run: |
+          ccache -s 
