@@ -165,7 +165,7 @@ jobs:
           ccache -M 5G
 
       - name: Clone Android prebuilts (mirror)
-          run: |
+        run: |
              rm -rf prebuilts
              git clone --depth=1 https://github.com/chrissicool/android_prebuilts_android.git prebuilts
 
