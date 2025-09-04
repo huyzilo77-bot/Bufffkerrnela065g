@@ -159,31 +159,38 @@ jobs:
           export DIST_DIR="../out/target/product/a06x/obj/KERNEL_OBJ"
           export BUILD_CONFIG="../out/target/product/a06x/obj/KERNEL_OBJ/build.config"
 
-          # Quay ra thư mục kernel gốc (Samsung để build.sh ở kernel/build/)
+          # Chạy build.sh của Samsung (nằm trong kernel/build/)
           cd ../kernel
           ./build/build.sh -j$(nproc --all) 2>&1 | tee ../build.log
 
-          # Debug xem file nào được tạo
+          # Debug xem build ra gì trong DIST_DIR
           echo "📂 Files trong DIST_DIR:"
           ls -la $DIST_DIR || true
+          find $DIST_DIR -maxdepth 3 -type f | head -n 50
 
       - name: Pack AnyKernel3 zip
         run: |
           set -eux
-          DIST=out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot
-          IMG=$(find "$DIST" -maxdepth 1 -type f -name "Image*" | head -n1 || true)
+          DIST=out/target/product/a06x/obj/KERNEL_OBJ
+
+          echo "📂 Files hiện có trong DIST:"
+          ls -la $DIST || true
+          echo "📂 Files trong các thư mục con:"
+          find $DIST -maxdepth 3 -type f | head -n 50
+
+          # Tìm file Image kernel bất kể nó nằm ở đâu trong DIST_DIR
+          IMG=$(find "$DIST" -type f -name "Image*" | head -n1 || true)
 
           if [ -z "$IMG" ]; then
             echo "❌ Không tìm thấy kernel Image trong $DIST"
-            ls -la $DIST || true
             exit 1
           fi
 
           echo "✅ Đã tìm thấy kernel Image: $IMG"
 
           cp "$IMG" AnyKernel3/zImage
-          (cd $DIST && cp -r dtb* ../../AnyKernel3/ || true)
-          (cd $DIST && cp -r dtbo* ../../AnyKernel3/ || true)
+          (cd $(dirname "$IMG") && cp -r dtb* ../../../AnyKernel3/ || true)
+          (cd $(dirname "$IMG") && cp -r dtbo* ../../../AnyKernel3/ || true)
 
           cd AnyKernel3
           zip -r ../Kernel-A06-5.15.151-KSU-SUSFS.zip ./*
