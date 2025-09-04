@@ -138,6 +138,10 @@ jobs:
           export USE_CCACHE=1
           ccache -M 5G
 
+- name: Clone prebuilts NDK
+        run: |
+          git clone https://android.googlesource.com/platform/prebuilts/ndk prebuilts/ndk
+
       - name: Build Kernel (Samsung build.sh)
         run: |
           set -eux
