@@ -185,15 +185,18 @@ jobs:
           OUT_BASE="out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot"
           DATE=$(date +%Y%m%d-%H%M)
 
-          # Ưu tiên Image.lz4, fallback sang Image.gz và Image
+          # Ưu tiên theo build.config của A06 (Image.lz4)
           if [ -f "$OUT_BASE/Image.lz4" ]; then
             IMG="$OUT_BASE/Image.lz4"
+          elif [ -f "$OUT_BASE/Image.gz-dtb" ]; then
+            IMG="$OUT_BASE/Image.gz-dtb"
           elif [ -f "$OUT_BASE/Image.gz" ]; then
             IMG="$OUT_BASE/Image.gz"
           elif [ -f "$OUT_BASE/Image" ]; then
             IMG="$OUT_BASE/Image"
           else
             echo "❌ Không tìm thấy kernel Image trong $OUT_BASE"
+            echo "📂 Các file hiện có:"
             find "$OUT_BASE" -type f -name "Image*" || true
             exit 1
           fi
@@ -203,7 +206,12 @@ jobs:
 
           # Copy dtbo nếu có
           DTBO=$(find out/target/product/a06x/obj/KERNEL_OBJ -type f -name "dtbo*" | head -n1 || true)
-          [ -n "$DTBO" ] && cp "$DTBO" AnyKernel3/ || true
+          if [ -n "$DTBO" ]; then
+            echo "✅ Đã tìm thấy DTBO: $DTBO"
+            cp "$DTBO" AnyKernel3/ || true
+          else
+            echo "⚠️ Không tìm thấy dtbo, bỏ qua."
+          fi
 
           # Đóng gói zip
           cd AnyKernel3
