@@ -167,6 +167,7 @@ jobs:
           echo "📂 Files trong DIST_DIR:"
           ls -la $DIST_DIR || true
           find $DIST_DIR -maxdepth 3 -type f | head -n 50
+          
           - name: Debug tìm kernel Image
         run: |
           echo "🔎 Tìm file Image* trong out/"
