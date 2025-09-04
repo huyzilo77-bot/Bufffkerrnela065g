@@ -168,39 +168,42 @@ jobs:
           ls -la $DIST_DIR || true
           find $DIST_DIR -maxdepth 3 -type f | head -n 50
 
-      - name: Đóng gói AnyKernel3 (KernelSU + SUSFS)
-        run: |
-          set -eux
-          OUTDIR=kernel-5.15/out/arch/arm64/boot
-          IMG=""
+        - name: Đóng gói AnyKernel3 (KernelSU + SUSFS)
+      run: |
+        set -eux
+        # Đường dẫn thực tế của kernel Image (theo README_Kernel.txt & build_kernel.sh)
+        OUTDIR=out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15/arch/arm64/boot
+        IMG=""
 
-          if [ -f "$OUTDIR/Image.gz-dtb" ]; then
-              IMG=$OUTDIR/Image.gz-dtb
-          elif [ -f "$OUTDIR/Image.gz" ]; then
-              IMG=$OUTDIR/Image.gz
-          elif [ -f "$OUTDIR/Image.lz4" ]; then
-              IMG=$OUTDIR/Image.lz4
-          elif [ -f "$OUTDIR/Image" ]; then
-              IMG=$OUTDIR/Image
-          fi
+        # Kiểm tra file Image có tồn tại không
+        if [ -f "$OUTDIR/Image.gz-dtb" ]; then
+          IMG=$OUTDIR/Image.gz-dtb
+        elif [ -f "$OUTDIR/Image.gz" ]; then
+          IMG=$OUTDIR/Image.gz
+        elif [ -f "$OUTDIR/Image.lz4" ]; then
+          IMG=$OUTDIR/Image.lz4
+        elif [ -f "$OUTDIR/Image" ]; then
+          IMG=$OUTDIR/Image
+        fi
 
-          if [ -z "$IMG" ]; then
-              echo "❌ Không tìm thấy kernel Image trong $OUTDIR"
-              ls -la $OUTDIR || true
-              exit 1
-          fi
+        if [ -z "$IMG" ]; then
+          echo "❌ Không tìm thấy kernel Image trong $OUTDIR"
+          ls -la $OUTDIR || true
+          exit 1
+        fi
 
-          echo "✅ Đã tìm thấy kernel Image: $IMG"
+        echo "✅ Đã tìm thấy kernel Image: $IMG"
 
-          # Copy vào AnyKernel3
-          cp "$IMG" AnyKernel3/Image || true
-          cp -r $OUTDIR/dtbo* AnyKernel3/ || true
+        # Copy vào AnyKernel3
+        cp "$IMG" AnyKernel3/Image || true
+        cp -r $OUTDIR/dtbo* AnyKernel3/ || true
 
-          cd AnyKernel3
-          zip -r9 "../Kernel-A06-5.15.151-KSU-SUSFS.zip" ./*
+        # Đóng gói thành zip
+        cd AnyKernel3
+        zip -r9 "../Kernel-A06-5.15.151-KSU-SUSFS.zip" . -x .git README.md *.zip
 
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Kernel-A06-5.15.151-KSU-SUSFS
-          path: Kernel-A06-5.15.151-KSU-SUSFS.zip
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: Kernel-A06-5.15.151-KSU-SUSFS
+        path: Kernel-A06-5.15.151-KSU-SUSFS.zip
