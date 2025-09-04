@@ -163,30 +163,30 @@ jobs:
           cd ../kernel
           ./build/build.sh -j$(nproc --all) 2>&1 | tee ../build.log
 
-          # Debug để xem file nào được tạo ra
+          # Debug xem file nào được tạo
           echo "📂 Files trong DIST_DIR:"
           ls -la $DIST_DIR || true
 
-       - name: Pack AnyKernel3 zip
-  run: |
-    set -eux
-    DIST=out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot
-    IMG=$(find "$DIST" -maxdepth 1 -type f -name "Image*" | head -n1 || true)
+      - name: Pack AnyKernel3 zip
+        run: |
+          set -eux
+          DIST=out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot
+          IMG=$(find "$DIST" -maxdepth 1 -type f -name "Image*" | head -n1 || true)
 
-    if [ -z "$IMG" ]; then
-      echo "❌ Không tìm thấy kernel Image trong $DIST"
-      ls -la $DIST || true
-      exit 1
-    fi
+          if [ -z "$IMG" ]; then
+            echo "❌ Không tìm thấy kernel Image trong $DIST"
+            ls -la $DIST || true
+            exit 1
+          fi
 
-    echo "✅ Đã tìm thấy kernel Image: $IMG"
+          echo "✅ Đã tìm thấy kernel Image: $IMG"
 
-    cp "$IMG" AnyKernel3/zImage
-    (cd $DIST && cp -r dtb* ../../AnyKernel3/ || true)
-    (cd $DIST && cp -r dtbo* ../../AnyKernel3/ || true)
+          cp "$IMG" AnyKernel3/zImage
+          (cd $DIST && cp -r dtb* ../../AnyKernel3/ || true)
+          (cd $DIST && cp -r dtbo* ../../AnyKernel3/ || true)
 
-    cd AnyKernel3
-    zip -r ../Kernel-A06-5.15.151-KSU-SUSFS.zip ./*
+          cd AnyKernel3
+          zip -r ../Kernel-A06-5.15.151-KSU-SUSFS.zip ./*
 
       - name: Patch init_boot.img
         run: |
