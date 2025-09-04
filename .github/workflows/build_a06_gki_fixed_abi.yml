@@ -79,30 +79,48 @@ jobs:
           echo "📂 Cấu trúc trong kernel-5.15:"
           ls -la kernel-5.15
 
-      - name: Clone AnyKernel3 & SUSFS
-        run: |
-          git clone https://github.com/osm0sis/AnyKernel3.git AnyKernel3
-          git clone -b gki-android13-5.15 https://gitlab.com/simonpunk/susfs4ksu.git susfs
+      - name: Cache AnyKernel3 & SUSFS
+      uses: actions/cache@v4
+      with:
+        path: |
+          AnyKernel3
+          susfs
+        key: ${{ runner.os }}-anykernel3-${{ github.ref }}
+        restore-keys: |
+          ${{ runner.os }}-anykernel3-
 
-      - name: Apply KernelSU-Next
-        run: |
-          cd kernel-5.15
-          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" \
-            | bash -s -- -s next
-            
-      - name: Clone AnyKernel3 & SUSFS
-        run: |
-          git clone https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+    - name: Clone/Update AnyKernel3 & SUSFS
+      run: |
+        if [ -d "AnyKernel3/.git" ]; then
+          echo "🔄 Updating AnyKernel3..."
+          cd AnyKernel3
+          git fetch --depth=1 origin
+          git reset --hard origin/master
+          cd ..
+        else
+          rm -rf AnyKernel3
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+        fi
+
+        if [ -d "susfs/.git" ]; then
+          echo "🔄 Updating SUSFS..."
+          cd susfs
+          git fetch --depth=1 origin
+          git reset --hard origin/master
+          cd ..
+        else
+          rm -rf susfs
           git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git susfs
+        fi
 
-      - name: Apply KernelSU-Next
-        run: |
-          git clone https://github.com/KernelSU-Next/KernelSU-Next.git ksu-next
-          cp -r ksu-next/* kernel-src/
+    - name: Apply KernelSU-Next
+      run: |
+        cd kernel-5.15
+        curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/main/kernel/setup.sh" | bash -s -- --with-susfs
 
-      - name: Apply SUSFS patches
-        run: |
-          cp -r susfs/* kernel-src/
+    - name: Apply SUSFS patches
+      run: |
+        cp -r susfs/* kernel-5.15/ || true
 
       - name: Select defconfig & fetch ABI
         run: |
