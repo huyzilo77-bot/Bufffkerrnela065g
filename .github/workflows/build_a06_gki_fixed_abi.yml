@@ -187,29 +187,19 @@ jobs:
           cd ../kernel
           ./build/build.sh -j$(nproc --all) 2>&1 | tee ../build.log
 
-      - name: Debug tìm file Image sau khi build
+      - name: Debug kiểm tra Image.lz4 sau khi build
         run: |
-          echo "🔎 Liệt kê file Image* trong out/target/product/a06x/obj/KERNEL_OBJ:"
+          echo "📂 Kiểm tra trong KERNEL_OBJ xem có Image.lz4 không:"
           find out/target/product/a06x/obj/KERNEL_OBJ -type f -name "Image*" | sort || true
 
       - name: Đóng gói AnyKernel3 (KernelSU + SUSFS)
         run: |
           set -eux
-          # Tìm file kernel Image (ưu tiên Image.lz4 theo gen_build_config.py)
-          IMG=$(find out/target/product/a06x/obj/KERNEL_OBJ -type f -name "Image.lz4" | head -n1 || true)
+          # Đường dẫn file kernel Image chính xác (theo build.config.mtk.aarch64)
+          IMG="out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15/arch/arm64/boot/Image.lz4"
 
-          if [ -z "$IMG" ]; then
-            IMG=$(find out/target/product/a06x/obj/KERNEL_OBJ -type f -name "Image.gz-dtb" | head -n1 || true)
-          fi
-          if [ -z "$IMG" ]; then
-            IMG=$(find out/target/product/a06x/obj/KERNEL_OBJ -type f -name "Image.gz" | head -n1 || true)
-          fi
-          if [ -z "$IMG" ]; then
-            IMG=$(find out/target/product/a06x/obj/KERNEL_OBJ -type f -name "Image" | head -n1 || true)
-          fi
-
-          if [ -z "$IMG" ]; then
-            echo "❌ Không tìm thấy kernel Image trong out/target/product/a06x/obj/KERNEL_OBJ"
+          if [ ! -f "$IMG" ]; then
+            echo "❌ Không tìm thấy $IMG"
             find out/target/product/a06x/obj/KERNEL_OBJ -type f -name "Image*"
             exit 1
           fi
