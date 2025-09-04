@@ -165,10 +165,10 @@ jobs:
           ccache -M 5G
 
       - name: Clone Android prebuilts (mirror)
-  run: |
-    rm -rf prebuilts
-    git clone https://github.com/chrissicool/android_prebuilts_android.git
-    mv android_prebuilts_android/prebuilts prebuilts
+        run: |
+         rm -rf prebuilts
+         git clone https://github.com/chrissicool/android_prebuilts_android.git
+         mv android_prebuilts_android/prebuilts prebuilts
 
       - name: Build Kernel (Samsung build.sh)
         run: |
