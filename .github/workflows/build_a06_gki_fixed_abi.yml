@@ -127,6 +127,33 @@ jobs:
           ls -R kernel-src/out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot || true
           ls -R kernel-src/out/target/product/a06x/obj/KERNEL_OBJ/dist || true
 
+      - name: Verify KernelSU in config
+        run: |
+          set -eux
+          cd kernel-5.15/out
+          if grep -q "CONFIG_KSU=y" .config; then
+            echo "✅ CONFIG_KSU đã được bật trong .config"
+          else
+            echo "❌ CONFIG_KSU chưa bật trong .config"
+            exit 1
+          fi
+
+      - name: Verify KernelSU in Image
+        run: |
+          set -eux
+          IMG_PATH=$(find kernel-5.15/out/arch/arm64/boot -name "Image*" | head -n1 || true)
+          if [ -z "$IMG_PATH" ]; then
+            echo "❌ Không tìm thấy Image trong out/arch/arm64/boot"
+            exit 1
+          fi
+
+          if strings "$IMG_PATH" | grep -q "KernelSU"; then
+            echo "✅ KernelSU đã được nhúng vào kernel image"
+          else
+            echo "❌ KernelSU không tồn tại trong image"
+            exit 1
+          fi
+          
       - name: Đóng gói AnyKernel3 (KernelSU + SUSFS)
         run: |
           set -eux
