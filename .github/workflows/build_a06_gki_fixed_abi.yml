@@ -169,9 +169,9 @@ jobs:
           find $DIST_DIR -maxdepth 3 -type f | head -n 50
           
           - name: Debug tìm kernel Image
-        run: |
-          echo "🔎 Tìm file Image* trong out/"
-          find out/ -type f -name "Image*" | head -n 50
+             run: |
+               echo "🔎 Tìm file Image* trong out/"
+               find out/ -type f -name "Image*" | head -n 50
 
       - name: Đóng gói AnyKernel3 (KernelSU + SUSFS)
         run: |
