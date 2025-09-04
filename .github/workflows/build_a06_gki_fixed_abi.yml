@@ -157,7 +157,7 @@ jobs:
           ./scripts/config --file out/.config -d KSU_KPROBES_HOOK || true
 
           make O=out ARCH=arm64 olddefconfig
-          
+
       - name: Setup ccache
         run: |
           sudo apt install -y ccache
@@ -252,4 +252,3 @@ jobs:
           echo "   🔗 Tên: Kernel-A06-build-output-${{ github.run_number }}"
           echo "   📦 File: ${{ env.ZIPNAME }} + build.log"
           echo "👉 Vào tab 'Artifacts' trong workflow run để tải về."
-          
