@@ -189,42 +189,42 @@ jobs:
 
       - name: Debug tìm file Image sau khi build
         run: |
-          echo "📂 Liệt kê file Image* trong toàn bộ workspace:"
-          find . -type f -name "Image*" | head -n 50
-          
+          echo "🔎 Liệt kê file Image* trong out/target/product/a06x/obj/KERNEL_OBJ:"
+          find out/target/product/a06x/obj/KERNEL_OBJ -type f -name "Image*" | sort || true
+
       - name: Đóng gói AnyKernel3 (KernelSU + SUSFS)
-        run: >
+        run: |
           set -eux
-
-          # Tìm file kernel Image (Image.gz, Image.gz-dtb, Image.lz4, Image)
-
-          IMG=$(find out/ -type f -name "Image*" | grep -E "Image(\.gz|\.gz-dtb|\.lz4)?$" | head -n1 || true)
-
+          # Tìm file kernel Image (ưu tiên Image.lz4 theo gen_build_config.py)
+          IMG=$(find out/target/product/a06x/obj/KERNEL_OBJ -type f -name "Image.lz4" | head -n1 || true)
 
           if [ -z "$IMG" ]; then
-            echo "❌ Không tìm thấy kernel Image trong thư mục out/"
-            find out/ -type f -name "Image*"
+            IMG=$(find out/target/product/a06x/obj/KERNEL_OBJ -type f -name "Image.gz-dtb" | head -n1 || true)
+          fi
+          if [ -z "$IMG" ]; then
+            IMG=$(find out/target/product/a06x/obj/KERNEL_OBJ -type f -name "Image.gz" | head -n1 || true)
+          fi
+          if [ -z "$IMG" ]; then
+            IMG=$(find out/target/product/a06x/obj/KERNEL_OBJ -type f -name "Image" | head -n1 || true)
+          fi
+
+          if [ -z "$IMG" ]; then
+            echo "❌ Không tìm thấy kernel Image trong out/target/product/a06x/obj/KERNEL_OBJ"
+            find out/target/product/a06x/obj/KERNEL_OBJ -type f -name "Image*"
             exit 1
           fi
 
-
           echo "✅ Đã tìm thấy kernel Image: $IMG"
 
-
           # Copy vào AnyKernel3
-
           cp "$IMG" AnyKernel3/Image || true
-
-          DTBO=$(find out/ -type f -name "dtbo*" | head -n1 || true)
-
+          DTBO=$(find out/target/product/a06x/obj/KERNEL_OBJ -type f -name "dtbo*" | head -n1 || true)
           [ -n "$DTBO" ] && cp "$DTBO" AnyKernel3/ || true
 
-
           # Đóng gói thành zip
-
           cd AnyKernel3
-
           zip -r9 "../Kernel-A06-5.15.151-KSU-SUSFS.zip" . -x .git README.md *.zip
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
