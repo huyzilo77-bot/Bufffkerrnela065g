@@ -89,8 +89,7 @@ jobs:
           cd kernel-5.15
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" \
             | bash -s -- -s next
-,
-
+            
       - name: Clone AnyKernel3 & SUSFS
         run: |
           git clone https://github.com/osm0sis/AnyKernel3.git AnyKernel3
