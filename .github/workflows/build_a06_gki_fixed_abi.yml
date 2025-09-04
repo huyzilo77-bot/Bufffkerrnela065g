@@ -187,10 +187,10 @@ jobs:
           cd ../kernel
           ./build/build.sh -j$(nproc --all) 2>&1 | tee ../build.log
 
-      - name: Debug tìm kernel Image
+      - name: Debug tìm file Image sau khi build
         run: |
-          echo "🔎 Tìm file Image* trong out/"
-          find out/ -type f -name "Image*"
+          echo "📂 Liệt kê file Image* trong toàn bộ workspace:"
+          find . -type f -name "Image*" | head -n 50
           
       - name: Đóng gói AnyKernel3 (KernelSU + SUSFS)
         run: >
