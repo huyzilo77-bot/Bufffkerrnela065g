@@ -185,6 +185,7 @@ jobs:
           OUT_BASE="out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot"
           DATE=$(date +%Y%m%d-%H%M)
 
+          # Ưu tiên Image.lz4, fallback sang Image.gz và Image
           if [ -f "$OUT_BASE/Image.lz4" ]; then
             IMG="$OUT_BASE/Image.lz4"
           elif [ -f "$OUT_BASE/Image.gz" ]; then
@@ -193,21 +194,23 @@ jobs:
             IMG="$OUT_BASE/Image"
           else
             echo "❌ Không tìm thấy kernel Image trong $OUT_BASE"
-            find "$OUT_BASE" -type f -name "Image*"
+            find "$OUT_BASE" -type f -name "Image*" || true
             exit 1
           fi
 
           echo "✅ Đã tìm thấy kernel Image: $IMG"
           cp "$IMG" AnyKernel3/Image || true
 
+          # Copy dtbo nếu có
           DTBO=$(find out/target/product/a06x/obj/KERNEL_OBJ -type f -name "dtbo*" | head -n1 || true)
           [ -n "$DTBO" ] && cp "$DTBO" AnyKernel3/ || true
 
+          # Đóng gói zip
           cd AnyKernel3
           ZIPNAME="../Kernel-A06-5.15.151-KSU-SUSFS-${DATE}.zip"
           zip -r9 "$ZIPNAME" . -x .git README.md *.zip
           echo "ZIPNAME=$ZIPNAME" >> $GITHUB_ENV
-
+          
       - name: Upload build outputs
         if: always()
         uses: actions/upload-artifact@v4
