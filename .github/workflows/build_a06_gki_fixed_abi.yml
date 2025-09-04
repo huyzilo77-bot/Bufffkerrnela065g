@@ -156,67 +156,144 @@ jobs:
           ln -sf /usr/bin/aarch64-linux-gnu-ld prebuilts/ndk/linux-x86/aarch64-linux-gnu-ld
           ls -la prebuilts/ndk/linux-x86
 
+      name: Build Samsung A06 GKI Kernel (KSU + SUSFS)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+
+      - name: Install deps & toolchains
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git curl wget build-essential bc bison flex libssl-dev \
+          libncurses5-dev libncursesw5-dev python3 python3-pip zip unzip ccache lz4
+
+      - name: Setup ccache
+        run: |
+          export USE_CCACHE=1
+          ccache -M 10G
+          ccache -z
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-ccache-${{ github.ref }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-
+
+      - name: Download Kernel Source (Samsung A06 Release)
+        run: |
+          git clone --depth=1 https://github.com/huyzilo77-bot/a06_kernel_release kernel-5.15
+
+      - name: Clone AnyKernel3 & SUSFS
+        run: |
+          git clone https://github.com/osm0sis/AnyKernel3 AnyKernel3
+          git clone https://github.com/chenxiaolong/susfs.git SUSFS || true
+
+      - name: Apply KernelSU-Next
+        run: |
+          git clone https://github.com/KernelSU-Next/KernelSU-Next KSU
+          cd kernel-5.15
+          bash ../KSU/kernel/setup.sh || true
+
+      - name: Apply SUSFS patches
+        run: |
+          cd kernel-5.15
+          patch -p1 < ../SUSFS/patches/*.patch || true
+
+      - name: Fix Kconfig encoding
+        run: |
+          cd kernel-5.15
+          find . -name "Kconfig*" -exec sed -i 's/\r$//' {} \;
+
+      - name: Select defconfig & fetch ABI
+        run: |
+          cd kernel-5.15
+          make a06x_defconfig
+
+      - name: Fake prebuilts NDK
+        run: |
+          mkdir -p prebuilts/ndk
+          touch prebuilts/ndk/fake_ndk.txt
+
       - name: Build Kernel (Samsung build.sh)
         run: |
-          set -eux
           cd kernel-5.15
+          bash build.sh
 
-          # Tạo build.config từ defconfig
-          python3 scripts/gen_build_config.py \
-            --kernel-defconfig a06x_00_defconfig \
-            --kernel-defconfig-overlays "entry_level.config" \
-            -m user \
-            -o ../out/target/product/a06x/obj/KERNEL_OBJ/build.config
+      - name: Debug output tree (find Image)
+        run: |
+          echo "🔍 Đang tìm file Image trong KERNEL_OBJ..."
+          find out/target/product/a06x/obj/KERNEL_OBJ -maxdepth 6 -type f \( -name "Image" -o -name "Image.gz" -o -name "Image.lz4" \) || true
 
-          # Xuất biến môi trường cho build
-          export ARCH=arm64
-          export PLATFORM_VERSION=13
-          export CROSS_COMPILE="aarch64-linux-gnu-"
-          export CROSS_COMPILE_COMPAT="arm-linux-gnueabi-"
-          export OUT_DIR="../out/target/product/a06x/obj/KERNEL_OBJ"
-          export DIST_DIR="../out/target/product/a06x/obj/KERNEL_OBJ/dist"
-          export BUILD_CONFIG="../out/target/product/a06x/obj/KERNEL_OBJ/build.config"
-
-          # Chạy build.sh của Samsung (nằm trong kernel/build/)
-          cd ../kernel
-          ./build/build.sh -j$(nproc --all) 2>&1 | tee ../build.log
-
-          echo "📂 DIST_DIR sau khi build:"
-          ls -la $DIST_DIR || true
-
-      - name: Đóng gói AnyKernel3 (KernelSU + SUSFS)
+      - name: Package AnyKernel3 (KSU + SUSFS)
         run: |
           set -eux
-          DIST_DIR=out/target/product/a06x/obj/KERNEL_OBJ/dist
+          BOOT_DIR=out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15/arch/arm64/boot
           IMG=""
 
-          # Ưu tiên Image.gz, sau đó thử các biến thể khác
-          if [ -f "$DIST_DIR/Image.gz" ]; then
-            IMG=$DIST_DIR/Image.gz
-          elif [ -f "$DIST_DIR/Image.lz4" ]; then
-            IMG=$DIST_DIR/Image.lz4
-          elif [ -f "$DIST_DIR/Image" ]; then
-            IMG=$DIST_DIR/Image
+          if [ -f "$BOOT_DIR/Image.gz" ]; then
+            IMG=$BOOT_DIR/Image.gz
+          elif [ -f "$BOOT_DIR/Image.lz4" ]; then
+            IMG=$BOOT_DIR/Image.lz4
+          elif [ -f "$BOOT_DIR/Image" ]; then
+            IMG=$BOOT_DIR/Image
           fi
 
           if [ -z "$IMG" ]; then
-            echo "❌ Không tìm thấy kernel Image trong $DIST_DIR"
-            ls -la $DIST_DIR || true
+            echo "❌ Không tìm thấy kernel Image trong $BOOT_DIR"
+            ls -la $BOOT_DIR || true
             exit 1
           fi
 
           echo "✅ Đã tìm thấy kernel Image: $IMG"
 
-          # Copy vào AnyKernel3
           cp "$IMG" AnyKernel3/Image
-          cp -r $DIST_DIR/dtbo* AnyKernel3/ || true
+          cp -r $BOOT_DIR/dtbo* AnyKernel3/ || true
 
-          # Đóng gói thành zip
           cd AnyKernel3
-          zip -r9 "../Kernel-A06-5.15.151-KSU-SUSFS.zip" . -x .git README.md *.zip
+          zip -r9 "../Kernel-A06-5.15-KSU-SUSFS.zip" . -x .git README.md *.zip
 
-      - name: Upload Kernel Artifact
+      - name: Upload Kernel Zip
         uses: actions/upload-artifact@v4
         with:
-          name: Kernel-A06-5.15.151-KSU-SUSFS
-          path: Kernel-A06-5.15.151-KSU-SUSFS.zip
+          name: Kernel-A06-5.15-KSU-SUSFS
+          path: Kernel-A06-5.15-KSU-SUSFS.zip
+
+      - name: Upload Boot Outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: boot-outputs
+          path: out/target/product/a06x/obj/KERNEL_OBJ/**/*.o
+
+      - name: Upload Kernel Config
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-config
+          path: kernel-5.15/.config
+
+      - name: Upload ABI Symbollist
+        uses: actions/upload-artifact@v4
+        with:
+          name: abi-symbollist
+          path: kernel-5.15/Module.symvers
+
+      - name: Upload Build Log
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: kernel-5.15/build.log
