@@ -171,24 +171,12 @@ jobs:
       - name: Đóng gói AnyKernel3 (KernelSU + SUSFS)
         run: |
           set -eux
-          # Đường dẫn thực tế của kernel Image (theo README_Kernel.txt & build_kernel.sh)
-          OUTDIR=out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15/arch/arm64/boot
-          IMG=""
-
-          # Kiểm tra file Image có tồn tại không
-          if [ -f "$OUTDIR/Image.gz-dtb" ]; then
-            IMG=$OUTDIR/Image.gz-dtb
-          elif [ -f "$OUTDIR/Image.gz" ]; then
-            IMG=$OUTDIR/Image.gz
-          elif [ -f "$OUTDIR/Image.lz4" ]; then
-            IMG=$OUTDIR/Image.lz4
-          elif [ -f "$OUTDIR/Image" ]; then
-            IMG=$OUTDIR/Image
-          fi
+          # Tìm file kernel Image (Image.gz, Image.gz-dtb, Image.lz4, Image)
+          IMG=$(find out/ -type f -name "Image*" | grep -E "Image(\.gz|\.gz-dtb|\.lz4)?$" | head -n1 || true)
 
           if [ -z "$IMG" ]; then
-            echo "❌ Không tìm thấy kernel Image trong $OUTDIR"
-            ls -la $OUTDIR || true
+            echo "❌ Không tìm thấy kernel Image trong thư mục out/"
+            find out/ -type f -name "Image*"
             exit 1
           fi
 
@@ -196,7 +184,8 @@ jobs:
 
           # Copy vào AnyKernel3
           cp "$IMG" AnyKernel3/Image || true
-          cp -r $OUTDIR/dtbo* AnyKernel3/ || true
+          DTBO=$(find out/ -type f -name "dtbo*" | head -n1 || true)
+          [ -n "$DTBO" ] && cp "$DTBO" AnyKernel3/ || true
 
           # Đóng gói thành zip
           cd AnyKernel3
