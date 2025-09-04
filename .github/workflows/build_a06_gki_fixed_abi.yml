@@ -213,12 +213,26 @@ jobs:
             echo "⚠️ Không tìm thấy dtbo, bỏ qua."
           fi
 
-          # Đóng gói zip
+          # Đóng gói thành zip
           cd AnyKernel3
           ZIPNAME="../Kernel-A06-5.15.151-KSU-SUSFS-${DATE}.zip"
           zip -r9 "$ZIPNAME" . -x .git README.md *.zip
           echo "ZIPNAME=$ZIPNAME" >> $GITHUB_ENV
-          
+
+      - name: Upload arch/arm64/boot outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: A06-boot-outputs-${{ github.run_number }}
+          path: out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot/*
+
+      - name: Upload kernel .config
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: A06-kernel-config-${{ github.run_number }}
+          path: out/target/product/a06x/obj/KERNEL_OBJ/.config
+
       - name: Upload build outputs
         if: always()
         uses: actions/upload-artifact@v4
@@ -227,4 +241,3 @@ jobs:
           path: |
             build.log
             ${{ env.ZIPNAME }}
-            out/target/product/a06x/obj/KERNEL_OBJ/.config
