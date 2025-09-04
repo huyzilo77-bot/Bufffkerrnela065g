@@ -1,0 +1,150 @@
+name: Build GKI Kernel (KernelSU + SUSFS)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      # -------------------
+      # Setup & Dependencies
+      # -------------------
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          df -hT
+
+      - name: Install deps & toolchains
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential ccache curl flex \
+            git gnupg gperf libncurses5-dev libssl-dev lzop python3 \
+            unzip zip zlib1g-dev
+
+      # -------------------
+      # Setup ccache
+      # -------------------
+      - name: Setup ccache
+        run: |
+          export USE_CCACHE=1
+          ccache -M 10G
+          ccache -z
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-ccache-${{ github.ref }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-
+
+      # -------------------
+      # Kernel source & AnyKernel3 + SUSFS
+      # -------------------
+      - name: Download Kernel Source (Samsung A06)
+        run: |
+          git clone https://github.com/ravindu644/android_kernel_m145f_common -b main kernel-5.15
+          ls -la kernel-5.15
+
+      - name: Clone AnyKernel3 & SUSFS
+        run: |
+          rm -rf AnyKernel3 susfs || true
+          git clone https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+          git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git susfs
+
+      # -------------------
+      # Apply KernelSU-Next & SUSFS patches
+      # -------------------
+      - name: Apply KernelSU-Next
+        run: |
+          cd kernel-5.15
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/main/scripts/setup.sh" | bash -s next
+
+      - name: Apply SUSFS patches
+        run: |
+          cp -r susfs/* kernel-5.15/
+
+      # -------------------
+      # Build kernel
+      # -------------------
+      - name: Select defconfig & fetch ABI
+        run: |
+          cd kernel-5.15
+          make ARCH=arm64 a06x_defconfig
+
+      - name: Fake prebuilts NDK
+        run: |
+          mkdir -p prebuilts/ndk
+          echo "fake ndk ok"
+
+      - name: Build Kernel (Samsung build.sh)
+        run: |
+          cd kernel-5.15
+          bash build.sh
+
+      # -------------------
+      # Debug tree
+      # -------------------
+      - name: Debug build tree
+        run: |
+          echo "📂 Kiểm tra dist/"
+          ls -R kernel-5.15/out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot || true
+          ls -R kernel-5.15/out/target/product/a06x/obj/KERNEL_OBJ/dist || true
+
+      - name: Verify KernelSU in config
+        run: |
+          cd kernel-5.15/out
+          if grep -q "CONFIG_KSU=y" .config; then
+            echo "✅ CONFIG_KSU đã được bật trong .config"
+          else
+            echo "❌ CONFIG_KSU chưa được bật"
+            exit 1
+          fi
+
+      # -------------------
+      # Package AnyKernel3
+      # -------------------
+      - name: Package AnyKernel3 (KernelSU + SUSFS)
+        run: |
+          DIST_DIR=kernel-5.15/out/target/product/a06x/obj/KERNEL_OBJ/dist
+          IMG=""
+          if [ -f "$DIST_DIR/Image.gz" ]; then
+            IMG=$DIST_DIR/Image.gz
+          elif [ -f "$DIST_DIR/Image.lz4" ]; then
+            IMG=$DIST_DIR/Image.lz4
+          elif [ -f "$DIST_DIR/Image" ]; then
+            IMG=$DIST_DIR/Image
+          fi
+
+          if [ -z "$IMG" ]; then
+            echo "❌ Không tìm thấy kernel Image trong $DIST_DIR"
+            ls -la $DIST_DIR || true
+            exit 1
+          fi
+
+          echo "✅ Đã tìm thấy kernel Image: $IMG"
+          cp "$IMG" AnyKernel3/Image
+          cp -r $DIST_DIR/dtbo* AnyKernel3/ || true
+
+          cd AnyKernel3
+          zip -r9 "../Kernel-A06-5.15-KSU-SUSFS.zip" . -x .git README.md *.zip
+
+      # -------------------
+      # Upload artifacts
+      # -------------------
+      - name: Upload Kernel Zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kernel-A06-5.15-KSU-SUSFS
+          path: Kernel-A06-5.15-KSU-SUSFS.zip
+
+      - name: Upload build logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: kernel-5.15/out
