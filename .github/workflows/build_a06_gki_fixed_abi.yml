@@ -168,47 +168,39 @@ jobs:
           ls -la $DIST_DIR || true
           find $DIST_DIR -maxdepth 3 -type f | head -n 50
 
-      - name: Pack AnyKernel3 zip
+      - name: Đóng gói AnyKernel3 (KernelSU + SUSFS)
         run: |
           set -eux
-          OUTDIR=kernel-5.15/out/dist
+          OUTDIR=kernel-5.15/out/arch/arm64/boot
           IMG=""
 
-          # Kiểm tra file Image trong dist
-          if [ -f "$OUTDIR/Image.lz4" ]; then
-            IMG="$OUTDIR/Image.lz4"
-          elif [ -f "$OUTDIR/Image.gz-dtb" ]; then
-            IMG="$OUTDIR/Image.gz-dtb"
+          if [ -f "$OUTDIR/Image.gz-dtb" ]; then
+              IMG=$OUTDIR/Image.gz-dtb
           elif [ -f "$OUTDIR/Image.gz" ]; then
-            IMG="$OUTDIR/Image.gz"
+              IMG=$OUTDIR/Image.gz
+          elif [ -f "$OUTDIR/Image.lz4" ]; then
+              IMG=$OUTDIR/Image.lz4
           elif [ -f "$OUTDIR/Image" ]; then
-            IMG="$OUTDIR/Image"
+              IMG=$OUTDIR/Image
           fi
 
           if [ -z "$IMG" ]; then
-            echo "❌ Không tìm thấy kernel Image trong $OUTDIR"
-            ls -la $OUTDIR || true
-            exit 1
+              echo "❌ Không tìm thấy kernel Image trong $OUTDIR"
+              ls -la $OUTDIR || true
+              exit 1
           fi
 
           echo "✅ Đã tìm thấy kernel Image: $IMG"
 
-          cp "$IMG" AnyKernel3/zImage
-          (cd $OUTDIR && cp -r dtb* ../../AnyKernel3/ || true)
-          (cd $OUTDIR && cp -r dtbo* ../../AnyKernel3/ || true)
+          # Copy vào AnyKernel3
+          cp "$IMG" AnyKernel3/Image || true
+          cp -r $OUTDIR/dtbo* AnyKernel3/ || true
 
           cd AnyKernel3
-          zip -r ../Kernel-A06-5.15.151-KSU-SUSFS.zip ./*
+          zip -r9 "../Kernel-A06-5.15.151-KSU-SUSFS.zip" ./*
 
-      - name: Upload all artifacts
-        if: always()
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Kernel-Build-Outputs-A06
-          path: |
-            kernel-5.15/build.log
-            kernel-5.15/out/.config
-            kernel-5.15/out/dist/*
-            kernel-5.15/out
-            kernel-5.15
-            Kernel-A06-5.15.151-KSU-SUSFS.zip
+          name: Kernel-A06-5.15.151-KSU-SUSFS
+          path: Kernel-A06-5.15.151-KSU-SUSFS.zip
