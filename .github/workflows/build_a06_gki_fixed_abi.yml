@@ -177,6 +177,7 @@ jobs:
             --kernel-defconfig-overlays "entry_level.config" \
             -m user \
             -o ../out/target/product/a06x/obj/KERNEL_OBJ/build.config
+
           export ARCH=arm64
           export PLATFORM_VERSION=13
           export CROSS_COMPILE="aarch64-linux-gnu-"
@@ -184,38 +185,46 @@ jobs:
           export OUT_DIR="../out/target/product/a06x/obj/KERNEL_OBJ"
           export DIST_DIR="../out/target/product/a06x/obj/KERNEL_OBJ"
           export BUILD_CONFIG="../out/target/product/a06x/obj/KERNEL_OBJ/build.config"
+
           cd ../kernel
           ./build/build.sh -j$(nproc --all) 2>&1 | tee ../build.log
 
-      - name: Debug kiểm tra Image.lz4 sau khi build
+      - name: Upload build.log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-build-log
+          path: build.log
+
+      - name: Debug kiểm tra arch/arm64/boot sau khi build
         run: |
-          echo "📂 Kiểm tra trong KERNEL_OBJ xem có Image.lz4 không:"
-          find out/target/product/a06x/obj/KERNEL_OBJ -type f -name "Image*" | sort || true
+          echo "📂 Liệt kê file trong OUT_DIR/arch/arm64/boot/"
+          ls -la out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot || true
+          echo "🔎 Tìm Image* trong OUT_DIR/arch/arm64/boot/"
+          find out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot -type f -name "Image*" || true
 
       - name: Đóng gói AnyKernel3 (KernelSU + SUSFS)
         run: |
           set -eux
-          # Đường dẫn file kernel Image chính xác (theo build.config.mtk.aarch64)
-          IMG="out/target/product/a06x/obj/KERNEL_OBJ/kernel-5.15/arch/arm64/boot/Image.lz4"
+          IMG="out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot/Image.lz4"
 
           if [ ! -f "$IMG" ]; then
             echo "❌ Không tìm thấy $IMG"
-            find out/target/product/a06x/obj/KERNEL_OBJ -type f -name "Image*"
+            find out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot -type f -name "Image*"
             exit 1
           fi
 
           echo "✅ Đã tìm thấy kernel Image: $IMG"
 
-          # Copy vào AnyKernel3
           cp "$IMG" AnyKernel3/Image || true
           DTBO=$(find out/target/product/a06x/obj/KERNEL_OBJ -type f -name "dtbo*" | head -n1 || true)
           [ -n "$DTBO" ] && cp "$DTBO" AnyKernel3/ || true
 
-          # Đóng gói thành zip
           cd AnyKernel3
           zip -r9 "../Kernel-A06-5.15.151-KSU-SUSFS.zip" . -x .git README.md *.zip
 
       - name: Upload Artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: Kernel-A06-5.15.151-KSU-SUSFS
