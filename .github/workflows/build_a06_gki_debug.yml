@@ -124,4 +124,3 @@ steps:
         kernel-5.15/out/.config
         kernel-5.15/out/arch/arm64/boot/*
         Kernel-A06-Debug.zip
-
