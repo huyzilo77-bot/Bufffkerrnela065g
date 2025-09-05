@@ -1,4 +1,4 @@
-name: 📦 Build Samsung A06 Kernel + KernelSU + SUSFS
+name: Build Samsung A06 5G Kernel + KernelSU + SUSFS (GKI + Cache)
 
 on:
   workflow_dispatch:
@@ -8,74 +8,98 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: 🧹 Checkout Repo
+      # Checkout repo để dùng workflow
+      - name: ⚙️ Checkout Repo
         uses: actions/checkout@v4
 
-      - name: 📥 Download Kernel Source (Samsung A06)
-        run: |
-          wget -O A066B-5G.zip https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/A066B-5G.zip
-          unzip A066B-5G.zip
-          tar -xvf Kernel.tar.gz
-          mv kernel-5.15 kernel-5.15-orig
-
-      - name: 🔧 Install Deps & Toolchains
+      # Cài toolchain & deps
+      - name: 🛠️ Install Deps & Toolchains
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential bc bison flex libssl-dev \
-            libncurses5-dev wget unzip ccache clang llvm lld git python3
+          sudo apt-get install -y \
+            git wget unzip curl \
+            gcc clang llvm lld \
+            make bc bison flex \
+            libssl-dev libncurses5-dev \
+            ccache
 
-      - name: 🛠️ Apply KernelSU + SUSFS patches
+      # Setup ccache
+      - name: ⚡ Setup ccache
+        uses: hendrikmuhs/ccache-action@v1
+        with:
+          max-size: 2G
+          save: true
+
+      # 📥 Tải kernel gốc Samsung A06
+      - name: 📥 Download Samsung A06 Kernel Source
         run: |
-          git clone https://github.com/KernelSU-Next/KernelSU-Next.git
-          git clone https://github.com/tiann/susfs4ksu.git susfs
+          wget -O kernel.zip https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/A066B-5G.zip
+          unzip kernel.zip -d kernel
+          ls -R kernel | head -50
 
-          cp -r kernel-5.15-orig kernel-5.15-patched
-
-          cd kernel-5.15-patched
-          patch -p1 < ../KernelSU-Next/kernel.patch || true
-          patch -p1 < ../susfs/patches/5.15/xxx.patch || true
-          cd ..
-
-      - name: 📤 Save Original Kernel Source
-        uses: actions/upload-artifact@v4
-        with:
-          name: kernel-orig
-          path: kernel-5.15-orig
-
-      - name: 📤 Save Patched Kernel Source
-        uses: actions/upload-artifact@v4
-        with:
-          name: kernel-patched
-          path: kernel-5.15-patched
-
-      - name: 📤 Save Patch Rejects
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: patch-rejects
-          path: |
-            kernel-5.15-patched/**/*.rej
-
-      - name: 🛠️ Build Kernel
+      # Clone KernelSU + SUSFS
+      - name: 📦 Clone KernelSU-Next & SUSFS
         run: |
-          cd kernel-5.15-patched
+          git clone --depth=1 https://github.com/KernelSU/KernelSU-Next.git KernelSU-Next
+          git clone --depth=1 https://github.com/sidex15/susfs4ksu-module.git susfs
+
+      # Áp dụng bản vá KernelSU
+      - name: 🧩 Apply KernelSU Patch
+        run: |
+          cd kernel/kernel-5.15
+          bash ../../KernelSU-Next/kernel/setup.sh next
+
+      # Áp dụng bản vá SUSFS
+      - name: 🧩 Apply SUSFS Patch
+        run: |
+          cd kernel/kernel-5.15
+          git apply --reject --whitespace=fix ../../susfs/*.patch || true
+
+      # Lưu bản gốc, đã vá, và .rej nếu có
+      - name: 💾 Save Original, Patched, Rejected
+        run: |
+          mkdir -p outputs/original outputs/patched outputs/rej
+          cp -r kernel/kernel-5.15 outputs/original/
+          cp -r kernel/kernel-5.15 outputs/patched/
+          find kernel/kernel-5.15 -name "*.rej" -exec cp --parents {} outputs/rej/ \; || true
+
+      # Build Kernel bằng Samsung build.sh (chuẩn GKI)
+      - name: 🛠️ Build Kernel (Samsung GKI style)
+        run: |
+          cd kernel
+          chmod +x build.sh
           export ARCH=arm64
           export SUBARCH=arm64
+          export CC="ccache clang"
           export CROSS_COMPILE=aarch64-linux-gnu-
-          export CC=clang
-          make a06x_defconfig
-          make -j$(nproc)
-          ls -lh arch/arm64/boot/
+          ./build.sh
+          ls -lh out/target/product/*/obj/KERNEL_OBJ/kernel-5.15/arch/arm64/boot/ || true
 
-      - name: 📦 Package AnyKernel3
+      # Debug output để kiểm tra Image
+      - name: 🔍 Debug Kernel Output
         run: |
-          git clone https://github.com/osm0sis/AnyKernel3.git
-          cp kernel-5.15-patched/arch/arm64/boot/Image.gz AnyKernel3/
-          cd AnyKernel3
-          zip -r9 ../AnyKernel3-A06-KSU-SUSFS.zip *
+          find kernel -type f -name "Image*" || true
 
-      - name: 📤 Upload AnyKernel3 Flashable
+      # Chuẩn bị AnyKernel3
+      - name: 📦 Clone AnyKernel3
+        run: |
+          git clone https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+          IMG=$(find kernel -type f -name "Image*" | head -n 1)
+          if [ -n "$IMG" ]; then
+            cp "$IMG" AnyKernel3/
+          fi
+
+      # Đóng gói AnyKernel3 flashable zip
+      - name: 📦 Pack AnyKernel3
+        run: |
+          cd AnyKernel3
+          zip -r9 ../A06-Kernel-KSU-SUSFS.zip . -x .git README.md *.zip
+
+      # Upload artifacts
+      - name: 📤 Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: anykernel3-flashable
-          path: AnyKernel3-A06-KSU-SUSFS.zip
+          name: A06-Kernel-Results
+          path: |
+            outputs/
+            A06-Kernel-KSU-SUSFS.zip
