@@ -1,57 +1,64 @@
-name: Build Samsung A06 5G Kernel + KSU + SUSFS
+name: 📦 Build Samsung A06 Kernel + KernelSU + SUSFS
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
-      - name: 📥 Checkout repo
+      - name: 🧹 Checkout Repo
         uses: actions/checkout@v4
 
-      - name: 📥 Download Kernel Source
+      - name: 📥 Download Kernel Source (Samsung A06)
         run: |
-          wget -O kernel_src.zip https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/A066B-5G.zip
-          unzip kernel_src.zip
+          wget -O A066B-5G.zip https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/A066B-5G.zip
+          unzip A066B-5G.zip
           tar -xvf Kernel.tar.gz
-          mv kernel* kernel-5.15 || true
-          ls -la
+          mv kernel-5.15 kernel-5.15-orig
 
-      - name: 📤 Upload Original Kernel
+      - name: 🔧 Install Deps & Toolchains
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bc bison flex libssl-dev \
+            libncurses5-dev wget unzip ccache clang llvm lld git python3
+
+      - name: 🛠️ Apply KernelSU + SUSFS patches
+        run: |
+          git clone https://github.com/KernelSU-Next/KernelSU-Next.git
+          git clone https://github.com/tiann/susfs4ksu.git susfs
+
+          cp -r kernel-5.15-orig kernel-5.15-patched
+
+          cd kernel-5.15-patched
+          patch -p1 < ../KernelSU-Next/kernel.patch || true
+          patch -p1 < ../susfs/patches/5.15/xxx.patch || true
+          cd ..
+
+      - name: 📤 Save Original Kernel Source
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-original
-          path: kernel-5.15
+          name: kernel-orig
+          path: kernel-5.15-orig
 
-      - name: 📥 Clone KernelSU
-        run: |
-          git clone https://github.com/tiann/KernelSU.git -b main KernelSU-Next
+      - name: 📤 Save Patched Kernel Source
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-patched
+          path: kernel-5.15-patched
 
-      - name: 📥 Clone SUSFS
-        run: |
-          git clone -b gki-android13-5.15 https://gitlab.com/simonpunk/susfs4ksu.git susfs
-
-      - name: 🩹 Apply SUSFS patches
-        run: |
-          cd kernel-5.15
-          for p in ../susfs/patches/*.patch; do
-            echo "Applying $p"
-            patch -p1 < "$p" || true
-          done
-          echo "✅ Done patching"
-
-      - name: 📂 Collect .rej files
+      - name: 📤 Save Patch Rejects
         if: always()
-        run: |
-          mkdir -p ../rej_out
-          find . -name "*.rej" -exec cp --parents {} ../rej_out/ \; || true
-        working-directory: kernel-5.15
+        uses: actions/upload-artifact@v4
+        with:
+          name: patch-rejects
+          path: |
+            kernel-5.15-patched/**/*.rej
 
-      - name: ⚒️ Build Kernel
+      - name: 🛠️ Build Kernel
         run: |
-          cd kernel-5.15
+          cd kernel-5.15-patched
           export ARCH=arm64
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
@@ -60,27 +67,15 @@ jobs:
           make -j$(nproc)
           ls -lh arch/arm64/boot/
 
-      - name: 📂 Prepare AnyKernel3
+      - name: 📦 Package AnyKernel3
         run: |
-          git clone https://github.com/osm0sis/AnyKernel3.git AnyKernel3
-          cp kernel-5.15/arch/arm64/boot/Image.gz AnyKernel3/
+          git clone https://github.com/osm0sis/AnyKernel3.git
+          cp kernel-5.15-patched/arch/arm64/boot/Image.gz AnyKernel3/
           cd AnyKernel3
-          zip -r9 ../AnyKernel3-Samsung-A06-5G-KSU-SUSFS.zip *
+          zip -r9 ../AnyKernel3-A06-KSU-SUSFS.zip *
 
-      - name: 📤 Upload Patched Kernel
-        uses: actions/upload-artifact@v4
-        with:
-          name: kernel-patched-ksu-susfs
-          path: kernel-5.15
-
-      - name: 📤 Upload .rej (if any)
-        uses: actions/upload-artifact@v4
-        with:
-          name: patch-rejects
-          path: rej_out
-
-      - name: 📤 Upload AnyKernel3 Flashable Zip
+      - name: 📤 Upload AnyKernel3 Flashable
         uses: actions/upload-artifact@v4
         with:
           name: anykernel3-flashable
-          path: AnyKernel3-Samsung-A06-5G-KSU-SUSFS.zip
+          path: AnyKernel3-A06-KSU-SUSFS.zip
