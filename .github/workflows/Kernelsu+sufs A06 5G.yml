@@ -37,10 +37,9 @@ jobs:
           unzip kernel.zip -d kernel
           ls -R kernel | head -50
 
-      # Clone KernelSU-Next & SUSFS
       - name: 📦 Clone KernelSU-Next & SUSFS
         run: |
-          git clone --depth=1 https://github.com/KernelSU/KernelSU-Next.git KernelSU-Next
+          git clone --depth=1 https://github.com/KernelSU-Next/KernelSU-Next.git KernelSU-Next
           git clone --depth=1 https://github.com/sidex15/susfs4ksu-module.git susfs
 
       # Áp dụng bản vá KernelSU
