@@ -1,0 +1,86 @@
+name: Build Samsung A06 5G Kernel + KSU + SUSFS
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout repo
+        uses: actions/checkout@v4
+
+      - name: 📥 Download Kernel Source
+        run: |
+          wget -O kernel_src.zip https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/A066B-5G.zip
+          unzip kernel_src.zip
+          tar -xvf Kernel.tar.gz
+          mv kernel* kernel-5.15 || true
+          ls -la
+
+      - name: 📤 Upload Original Kernel
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-original
+          path: kernel-5.15
+
+      - name: 📥 Clone KernelSU
+        run: |
+          git clone https://github.com/tiann/KernelSU.git -b main KernelSU-Next
+
+      - name: 📥 Clone SUSFS
+        run: |
+          git clone -b gki-android13-5.15 https://gitlab.com/simonpunk/susfs4ksu.git susfs
+
+      - name: 🩹 Apply SUSFS patches
+        run: |
+          cd kernel-5.15
+          for p in ../susfs/patches/*.patch; do
+            echo "Applying $p"
+            patch -p1 < "$p" || true
+          done
+          echo "✅ Done patching"
+
+      - name: 📂 Collect .rej files
+        if: always()
+        run: |
+          mkdir -p ../rej_out
+          find . -name "*.rej" -exec cp --parents {} ../rej_out/ \; || true
+        working-directory: kernel-5.15
+
+      - name: ⚒️ Build Kernel
+        run: |
+          cd kernel-5.15
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CC=clang
+          make a06x_defconfig
+          make -j$(nproc)
+          ls -lh arch/arm64/boot/
+
+      - name: 📂 Prepare AnyKernel3
+        run: |
+          git clone https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+          cp kernel-5.15/arch/arm64/boot/Image.gz AnyKernel3/
+          cd AnyKernel3
+          zip -r9 ../AnyKernel3-Samsung-A06-5G-KSU-SUSFS.zip *
+
+      - name: 📤 Upload Patched Kernel
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-patched-ksu-susfs
+          path: kernel-5.15
+
+      - name: 📤 Upload .rej (if any)
+        uses: actions/upload-artifact@v4
+        with:
+          name: patch-rejects
+          path: rej_out
+
+      - name: 📤 Upload AnyKernel3 Flashable Zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: anykernel3-flashable
+          path: AnyKernel3-Samsung-A06-5G-KSU-SUSFS.zip
