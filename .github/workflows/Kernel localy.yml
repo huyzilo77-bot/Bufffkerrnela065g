@@ -1,0 +1,51 @@
+name: Patch Kernel with SUSFS
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch-susfs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout workflow repo
+        uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git patch zip
+
+      - name: Clone Kernel source
+        run: |
+          git clone https://github.com/ravindu644/android_kernel_m145f_common kernel-src
+
+      - name: Clone SUSFS
+        run: |
+          git clone -b gki-android13-5.15 https://gitlab.com/simonpunk/susfs4ksu.git susfs
+
+      - name: Apply SUSFS patches
+        run: |
+          cp -r kernel-src kernel-src-patched
+          cd kernel-src-patched
+          for patch in ../susfs/patches/*.patch; do
+            echo "🔧 Applying $patch..."
+            patch -p1 < "$patch" || true
+          done
+          cd ..
+          echo "📂 Checking .rej files..."
+          find kernel-src-patched -name "*.rej" || true
+
+      - name: Archive results
+        run: |
+          zip -r kernel-src.zip kernel-src
+          zip -r kernel-src-patched.zip kernel-src-patched
+          zip -r rej-files.zip $(find kernel-src-patched -name "*.rej") || true
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: susfs-results
+          path: |
+            kernel-src.zip
+            kernel-src-patched.zip
+            rej-files.zip
