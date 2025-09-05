@@ -94,6 +94,33 @@ jobs:
           make olddefconfig
           grep -E "CONFIG_KSU|CONFIG_SUSFS|CONFIG_LZ4" .config || true
 
+      - name: ⚡ Force enable KernelSU & SUSFS configs
+        run: |
+          cd kernel-src/$KERNEL_DIR
+          {
+            echo 'CONFIG_KSU=y'
+            echo 'CONFIG_SUSFS=y'
+            echo 'CONFIG_KSU_DEBUG=y'
+            echo 'CONFIG_SUSFS_DEBUG=y'
+            echo 'CONFIG_LZ4_COMPRESS=y'
+            echo 'CONFIG_LZ4_DECOMPRESS=y'
+          } >> .config
+          make olddefconfig
+          grep -E "CONFIG_KSU|CONFIG_SUSFS|CONFIG_LZ4" .config || true
+
+      - name: 🩹 Fix ABI whitelist (fallback)
+        run: |
+          cd kernel-src/$KERNEL_DIR
+          if [ ! -f "abi_symbollist.raw" ]; then
+            echo "⚠️ Không có abi_symbollist.raw → tạo file giả"
+            echo "# dummy abi symbollist" > abi_symbollist.raw
+          fi
+
+      - name: Fake prebuilts NDK
+        run: |
+          mkdir -p prebuilts/ndk
+          echo "fake ndk ok"
+
       - name: Dump Kernel Config
         run: |
           cd kernel-src/$KERNEL_DIR
