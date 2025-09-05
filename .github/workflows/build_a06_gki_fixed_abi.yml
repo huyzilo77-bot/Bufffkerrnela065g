@@ -59,50 +59,21 @@ jobs:
             exit 1
           fi
           
-      - name: Cache AnyKernel3 & SUSFS
-        uses: actions/cache@v4
-        with:
-          path: |
-            AnyKernel3
-            susfs
-          key: ${{ runner.os }}-anykernel3-${{ github.ref }}
-          restore-keys: |
-            ${{ runner.os }}-anykernel3-
-
-      - name: Clone/Update AnyKernel3 & SUSFS
+      - name: 🌱 Clone KernelSU-Next & SUSFS
         run: |
-          if [ -d "AnyKernel3/.git" ]; then
-            echo "🔄 Updating AnyKernel3..."
-            cd AnyKernel3
-            git fetch --depth=1 origin
-            git reset --hard origin/master
-            cd ..
-          else
-            rm -rf AnyKernel3
-            git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
-          fi
+          git clone --depth=1 https://github.com/KernelSU-Next/KernelSU-Next.git KernelSU-Next
+          git clone --depth=1 https://github.com/sidex15/susfs4ksu-module.git susfs
 
-          if [ -d "susfs/.git" ]; then
-            echo "🔄 Updating SUSFS..."
-            cd susfs
-            git fetch --depth=1 origin
-            git reset --hard origin/master
-            cd ..
-          else
-            rm -rf susfs
-            git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git susfs
-          fi
-
-      - name: Apply KernelSU-Next
+      - name: 🌱 Apply KernelSU
         run: |
-          cd kernel-5.15
-          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/main/kernel/setup.sh" \
-            | bash -s -- --with-susfs
+          cd kernel-src/$kernel_dir
+          bash ../../KernelSU-Next/kernel/setup.sh || true
 
-      - name: Apply SUSFS patches
+      - name: 🌱 Apply SUSFS
         run: |
-          cp -r susfs/* kernel-5.15/ || true
-
+          cd kernel-src/$kernel_dir
+          patch -p1 < ../../susfs/susfs.patch || true
+          
       - name: Select defconfig & fetch ABI
         run: |
           cd kernel-5.15
