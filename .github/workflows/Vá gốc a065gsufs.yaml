@@ -1,0 +1,57 @@
+name: Patch Samsung A06 5G Kernel with SUSFS
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch-susfs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout workflow repo
+        uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git patch unzip tar zip wget
+
+      - name: Download Samsung Kernel Source
+        run: |
+          wget -O source.zip https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/SM-A066B_15_Opensource.zip
+          unzip source.zip -d source
+          tar -xvf source/SM-A066B_15_Opensource/Kernel.tar.gz -C source
+
+      - name: Prepare kernel source
+        run: |
+          mv source/kernel-5.15 kernel-5.15-orig
+          cp -r kernel-5.15-orig kernel-5.15-patched
+
+      - name: Clone SUSFS
+        run: |
+          git clone -b gki-android13-5.15 https://gitlab.com/simonpunk/susfs4ksu.git susfs
+
+      - name: Apply SUSFS patches
+        run: |
+          cd kernel-5.15-patched
+          for patch in ../susfs/patches/*.patch; do
+            echo "🔧 Applying $patch..."
+            patch -p1 < "$patch" || true
+          done
+          cd ..
+          echo "📂 Checking .rej files..."
+          find kernel-5.15-patched -name "*.rej" || true
+
+      - name: Archive results
+        run: |
+          zip -r kernel-5.15-orig.zip kernel-5.15-orig
+          zip -r kernel-5.15-patched.zip kernel-5.15-patched
+          zip -r rej-files.zip $(find kernel-5.15-patched -name "*.rej") || true
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: susfs-results
+          path: |
+            kernel-5.15-orig.zip
+            kernel-5.15-patched.zip
+            rej-files.zip
