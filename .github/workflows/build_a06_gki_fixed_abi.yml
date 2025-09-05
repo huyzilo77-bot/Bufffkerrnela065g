@@ -97,27 +97,27 @@ jobs:
           echo "fake ndk ok"
 
       - name: 🛠️ Build Kernel (Auto Detect)
-  run: |
-    cd kernel-src/$KERNEL_DIR
+        run: |
+          cd kernel-src/$KERNEL_DIR
 
-    if [ -f "build.sh" ]; then
-      echo "🔧 Phát hiện build.sh → chạy build.sh"
-      bash build.sh || { echo "❌ build.sh thất bại"; exit 1; }
+          if [ -f "build.sh" ]; then
+            echo "🔧 Phát hiện build.sh → chạy build.sh"
+            bash build.sh || { echo "❌ build.sh thất bại"; exit 1; }
 
-    elif [ -f "build_kernel.sh" ]; then
-      echo "🔧 Phát hiện build_kernel.sh → chạy build_kernel.sh"
-      bash build_kernel.sh || { echo "❌ build_kernel.sh thất bại"; exit 1; }
+          elif [ -f "build_kernel.sh" ]; then
+            echo "🔧 Phát hiện build_kernel.sh → chạy build_kernel.sh"
+            bash build_kernel.sh || { echo "❌ build_kernel.sh thất bại"; exit 1; }
 
-    else
-      echo "⚡ Không có build.sh → fallback sang build GKI chuẩn"
-      export ARCH=arm64
-      export SUBARCH=arm64
-      export CROSS_COMPILE=aarch64-linux-gnu-
-      export CC=clang
-      make a06x_defconfig
-      make -j$(nproc) || { echo "❌ Build GKI thất bại"; exit 1; }
-    fi
-    
+          else
+            echo "⚡ Không có build.sh → fallback sang build GKI chuẩn"
+            export ARCH=arm64
+            export SUBARCH=arm64
+            export CROSS_COMPILE=aarch64-linux-gnu-
+            export CC=clang
+            make a06x_defconfig
+            make -j$(nproc) || { echo "❌ Build GKI thất bại"; exit 1; }
+          fi
+
       - name: Debug build tree
         run: |
           echo "📂 Kiểm tra dist/"
