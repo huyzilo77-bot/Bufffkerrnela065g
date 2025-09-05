@@ -1,4 +1,4 @@
-name: Patch Kernel A06 with SUSFS
+name: Patch SUSFS into Samsung A06 5G Kernel
 
 on:
   workflow_dispatch:
@@ -8,53 +8,50 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Workflow Repo
+      - name: 📥 Checkout repo
         uses: actions/checkout@v4
 
-      - name: Download Kernel Source (Samsung A06 Release)
+      - name: 📥 Download Kernel Source (Samsung A06 5G)
         run: |
-          mkdir source && cd source
-          wget -q https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/SM-A066B_15_Opensource.zip
-          unzip SM-A066B_15_Opensource.zip
+          wget -O kernel_src.zip https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/A066B-5G.zip
+          unzip kernel_src.zip
           tar -xvf Kernel.tar.gz
-          echo "✅ Giải nén xong kernel source"
           ls -la
-          ls -la kernel-5.15 || true
 
-      - name: Clone SUSFS
+      - name: 📤 Upload Original Kernel
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-original
+          path: kernel-5.15
+
+      - name: 📥 Clone SUSFS
         run: |
           git clone -b gki-android13-5.15 https://gitlab.com/simonpunk/susfs4ksu.git susfs
-          ls -la susfs || true
 
-      - name: Patch Kernel with SUSFS
+      - name: 🩹 Apply SUSFS patches
         run: |
-          cd source/kernel-5.15
-          echo "🔧 Áp dụng patch SUSFS..."
-          patch -p1 < ../../susfs/ksu_susfs.patch || true
-          echo "✅ Patch xong, kiểm tra file .rej nếu có"
-          find . -name "*.rej" || true
+          cd kernel-5.15
+          for p in ../susfs/patches/*.patch; do
+            echo "Applying $p"
+            patch -p1 < "$p" || true
+          done
+          echo "✅ Done patching"
 
-      - name: Prepare Artifacts
+      - name: 📂 Collect .rej files
+        if: always()
         run: |
-          mkdir -p artifacts
-          cp -r source/kernel-5.15 artifacts/kernel-5.15-patched || true
-          cp -r source/kernel-5.15 artifacts/kernel-5.15-unpatched || true
-          find source/kernel-5.15 -name "*.rej" -exec cp --parents {} artifacts/ \; || true
+          mkdir -p ../rej_out
+          find . -name "*.rej" -exec cp --parents {} ../rej_out/ \; || true
+        working-directory: kernel-5.15
 
-      - name: Upload Patched Kernel
+      - name: 📤 Upload Patched Kernel
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-5.15-patched
-          path: artifacts/kernel-5.15-patched
+          name: kernel-patched-susfs
+          path: kernel-5.15
 
-      - name: Upload Unpatched Kernel
-        uses: actions/upload-artifact@v4
-        with:
-          name: kernel-5.15-unpatched
-          path: artifacts/kernel-5.15-unpatched
-
-      - name: Upload Patch Rejects
+      - name: 📤 Upload .rej (if any)
         uses: actions/upload-artifact@v4
         with:
           name: susfs-rejects
-          path: artifacts/**/*.rej
+          path: rej_out
