@@ -15,16 +15,37 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y git patch unzip tar zip wget
 
-      - name: Download Samsung Kernel Source
+      - name: Download Kernel Source (Samsung A06 Release)
         run: |
-          wget -O source.zip https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/SM-A066B_15_Opensource.zip
-          unzip source.zip -d source
-          tar -xvf source/SM-A066B_15_Opensource/Kernel.tar.gz -C source
+          set -eux
+          wget -O source.zip "https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/A066B-5G.zip"
+          unzip -q source.zip
 
-      - name: Prepare kernel source
-        run: |
-          mv source/kernel-5.15 kernel-5.15-orig
-          cp -r kernel-5.15-orig kernel-5.15-patched
+          echo "📂 Sau khi giải nén source.zip:"
+          ls -la
+
+          # Giải nén Kernel.tar.gz để lấy mã nguồn thật
+          tar -xvf Kernel.tar.gz
+
+          echo "📂 Sau khi giải nén Kernel.tar.gz:"
+          ls -la
+
+          # Kiểm tra thư mục kernel-5.15 đã tồn tại chưa
+          if [ -d kernel-5.15 ]; then
+            echo "✅ Đã tìm thấy kernel-5.15"
+          else
+            SRC_DIR=$(find . -maxdepth 1 -type d -name "SM-A066B*" | head -n 1 || true)
+            if [ -z "$SRC_DIR" ]; then
+              echo "❌ Không tìm thấy thư mục source sau khi giải nén!"
+              exit 1
+            fi
+            mv "$SRC_DIR" kernel-5.15
+          fi
+
+          chmod +x -R kernel-5.15
+
+          echo "📂 Cấu trúc trong kernel-5.15:"
+          ls -la kernel-5.15
 
       - name: Clone SUSFS
         run: |
