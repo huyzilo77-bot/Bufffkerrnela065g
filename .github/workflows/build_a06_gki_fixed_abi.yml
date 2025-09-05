@@ -90,6 +90,20 @@ jobs:
           cd kernel-5.15
           make ARCH=arm64 a06x_defconfig
 
+      - name: Force enable KernelSU & SUSFS configs
+        run: |
+          cd kernel-5.15
+          if ! grep -q "CONFIG_KSU=y" .config; then
+            echo 'CONFIG_KSU=y' >> .config
+            echo "⚡ Ép bật CONFIG_KSU=y"
+          fi
+          if ! grep -q "CONFIG_SUSFS=y" .config; then
+            echo 'CONFIG_SUSFS=y' >> .config
+            echo "⚡ Ép bật CONFIG_SUSFS=y"
+          fi
+          make olddefconfig
+          grep -E "CONFIG_KSU|CONFIG_SUSFS" .config || true
+
       - name: Fake prebuilts NDK
         run: |
           mkdir -p prebuilts/ndk
@@ -98,7 +112,7 @@ jobs:
       - name: Build Kernel (Samsung build.sh)
         run: |
           cd kernel-5.15
-          bash build.sh
+          bash build.sh || { echo "❌ Build.sh thất bại"; exit 1; }
 
       - name: Debug build tree
         run: |
@@ -106,16 +120,11 @@ jobs:
           ls -R kernel-5.15/out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot || true
           ls -R kernel-5.15/out/target/product/a06x/obj/KERNEL_OBJ/dist || true
 
-      - name: Verify KernelSU in config
+      - name: Verify KernelSU & SUSFS in config
         run: |
-          set -eux
           cd kernel-5.15/out
-          if grep -q "CONFIG_KSU=y" .config; then
-            echo "✅ CONFIG_KSU đã được bật trong .config"
-          else
-            echo "❌ CONFIG_KSU chưa bật!"
-            exit 1
-          fi
+          grep -q "CONFIG_KSU=y" .config && echo "✅ CONFIG_KSU đã bật" || (echo "❌ Chưa bật KSU"; exit 1)
+          grep -q "CONFIG_SUSFS=y" .config && echo "✅ CONFIG_SUSFS đã bật" || (echo "❌ Chưa bật SUSFS"; exit 1)
 
       - name: Package AnyKernel3 (KernelSU + SUSFS)
         run: |
@@ -129,17 +138,12 @@ jobs:
           elif [ -f "$DIST_DIR/Image" ]; then
             IMG=$DIST_DIR/Image
           fi
-
           if [ -z "$IMG" ]; then
             echo "❌ Không tìm thấy kernel Image trong $DIST_DIR"
-            ls -la $DIST_DIR || true
             exit 1
           fi
-
-          echo "✅ Đã tìm thấy kernel Image: $IMG"
           cp "$IMG" AnyKernel3/Image
           cp -r $DIST_DIR/dtbo* AnyKernel3/ || true
-
           cd AnyKernel3
           zip -r9 "../Kernel-A06-5.15-KSU-SUSFS.zip" . -x .git README.md *.zip
 
@@ -173,6 +177,32 @@ jobs:
           name: Build-Log
           path: kernel-5.15/out/build.log
 
+      # 🔥 Thêm bước xuất bản vá gốc, patch và .rej
+      - name: Save Original Kernel Tree
+        run: |
+          zip -r ../Kernel-A06-Original.zip kernel-5.15
+
+      - name: Generate Patch & Collect Rejects
+        run: |
+          cd kernel-5.15
+          git init
+          git add .
+          git commit -m "Original kernel source"
+          # áp lại patch để sinh .rej nếu lỗi
+          git apply --reject ../susfs/*.patch || true
+          cd ..
+          git -C kernel-5.15 diff > Kernel-A06-KSU-SUSFS.patch
+          zip -r Kernel-A06-Rejects.zip kernel-5.15/*.rej || true
+
+      - name: Upload Original, Patch, Rejects
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kernel-Patches
+          path: |
+            Kernel-A06-Original.zip
+            Kernel-A06-KSU-SUSFS.patch
+            Kernel-A06-Rejects.zip
+
       - name: Post Cache ccache
         run: |
-          ccache -s 
+          ccache -s
