@@ -47,48 +47,46 @@ jobs:
           ls -la
 
       - name: 🌱 Detect Kernel Dir
-        id: detect
         run: |
           cd kernel-src
           if [ -d "kernel-5.15" ]; then
-            echo "kernel_dir=kernel-5.15" >> $GITHUB_ENV
+            echo "KERNEL_DIR=kernel-5.15" >> $GITHUB_ENV
           elif [ -d "kernel" ]; then
-            echo "kernel_dir=kernel" >> $GITHUB_ENV
+            echo "KERNEL_DIR=kernel" >> $GITHUB_ENV
           else
             echo "❌ Không tìm thấy thư mục kernel!"
             exit 1
           fi
-          
+
       - name: 🌱 Clone KernelSU-Next & SUSFS
         run: |
           git clone --depth=1 https://github.com/KernelSU-Next/KernelSU-Next.git KernelSU-Next
           git clone --depth=1 https://github.com/sidex15/susfs4ksu-module.git susfs
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
 
       - name: 🌱 Apply KernelSU
         run: |
-          cd kernel-src/$kernel_dir
+          cd kernel-src/$KERNEL_DIR
           bash ../../KernelSU-Next/kernel/setup.sh || true
 
       - name: 🌱 Apply SUSFS
         run: |
-          cd kernel-src/$kernel_dir
+          cd kernel-src/$KERNEL_DIR
           patch -p1 < ../../susfs/susfs.patch || true
-          
-      - name: Select defconfig & fetch ABI
+
+      - name: 🛠️ Select defconfig & fetch ABI
         run: |
-          cd kernel-5.15
+          cd kernel-src/$KERNEL_DIR
           make ARCH=arm64 a06x_defconfig
 
-      - name: Force enable KernelSU & SUSFS configs
+      - name: ⚡ Force enable KernelSU & SUSFS configs
         run: |
-          cd kernel-5.15
+          cd kernel-src/$KERNEL_DIR
           if ! grep -q "CONFIG_KSU=y" .config; then
             echo 'CONFIG_KSU=y' >> .config
-            echo "⚡ Ép bật CONFIG_KSU=y"
           fi
           if ! grep -q "CONFIG_SUSFS=y" .config; then
             echo 'CONFIG_SUSFS=y' >> .config
-            echo "⚡ Ép bật CONFIG_SUSFS=y"
           fi
           make olddefconfig
           grep -E "CONFIG_KSU|CONFIG_SUSFS" .config || true
@@ -100,25 +98,25 @@ jobs:
 
       - name: Build Kernel (Samsung build.sh)
         run: |
-          cd kernel-5.15
+          cd kernel-src/$KERNEL_DIR
           bash build.sh || { echo "❌ Build.sh thất bại"; exit 1; }
 
       - name: Debug build tree
         run: |
           echo "📂 Kiểm tra dist/"
-          ls -R kernel-5.15/out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot || true
-          ls -R kernel-5.15/out/target/product/a06x/obj/KERNEL_OBJ/dist || true
+          ls -R kernel-src/$KERNEL_DIR/out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot || true
+          ls -R kernel-src/$KERNEL_DIR/out/target/product/a06x/obj/KERNEL_OBJ/dist || true
 
       - name: Verify KernelSU & SUSFS in config
         run: |
-          cd kernel-5.15/out
+          cd kernel-src/$KERNEL_DIR/out
           grep -q "CONFIG_KSU=y" .config && echo "✅ CONFIG_KSU đã bật" || (echo "❌ Chưa bật KSU"; exit 1)
           grep -q "CONFIG_SUSFS=y" .config && echo "✅ CONFIG_SUSFS đã bật" || (echo "❌ Chưa bật SUSFS"; exit 1)
 
       - name: Package AnyKernel3 (KernelSU + SUSFS)
         run: |
           set -eux
-          DIST_DIR=kernel-5.15/out/target/product/a06x/obj/KERNEL_OBJ/dist
+          DIST_DIR=kernel-src/$KERNEL_DIR/out/target/product/a06x/obj/KERNEL_OBJ/dist
           IMG=""
           if [ -f "$DIST_DIR/Image.gz" ]; then
             IMG=$DIST_DIR/Image.gz
@@ -146,42 +144,40 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Boot-Outputs
-          path: kernel-5.15/out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot/*
+          path: kernel-src/$KERNEL_DIR/out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot/*
 
       - name: Upload Kernel Config
         uses: actions/upload-artifact@v4
         with:
           name: Kernel-Config
-          path: kernel-5.15/out/.config
+          path: kernel-src/$KERNEL_DIR/out/.config
 
       - name: Upload ABI Symbollist
         uses: actions/upload-artifact@v4
         with:
           name: ABI-Symbollist
-          path: kernel-5.15/out/abi_symbollist
+          path: kernel-src/$KERNEL_DIR/out/abi_symbollist
 
       - name: Upload Build Log
         uses: actions/upload-artifact@v4
         with:
           name: Build-Log
-          path: kernel-5.15/out/build.log
+          path: kernel-src/$KERNEL_DIR/out/build.log
 
-      # 🔥 Thêm bước xuất bản vá gốc, patch và .rej
       - name: Save Original Kernel Tree
         run: |
-          zip -r ../Kernel-A06-Original.zip kernel-5.15
+          zip -r ../Kernel-A06-Original.zip kernel-src/$KERNEL_DIR
 
       - name: Generate Patch & Collect Rejects
         run: |
-          cd kernel-5.15
+          cd kernel-src/$KERNEL_DIR
           git init
           git add .
           git commit -m "Original kernel source"
-          # áp lại patch để sinh .rej nếu lỗi
-          git apply --reject ../susfs/*.patch || true
-          cd ..
-          git -C kernel-5.15 diff > Kernel-A06-KSU-SUSFS.patch
-          zip -r Kernel-A06-Rejects.zip kernel-5.15/*.rej || true
+          git apply --reject ../../susfs/*.patch || true
+          cd ../..
+          git -C kernel-src/$KERNEL_DIR diff > Kernel-A06-KSU-SUSFS.patch
+          zip -r Kernel-A06-Rejects.zip kernel-src/$KERNEL_DIR/*.rej || true
 
       - name: Upload Original, Patch, Rejects
         uses: actions/upload-artifact@v4
