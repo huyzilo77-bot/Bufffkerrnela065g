@@ -1,0 +1,212 @@
+name: Build Samsung A06 GKI Kernel (Pro Max)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo apt-get clean
+          df -h
+
+      - name: Install deps & toolchains
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git wget curl unzip bc build-essential ccache \
+            flex bison libssl-dev libncurses5-dev python3 \
+            clang llvm lld gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+
+      - name: Setup ccache
+        run: |
+          export USE_CCACHE=1
+          ccache -M 10G
+          ccache -z
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-ccache-${{ github.ref }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-
+
+      - name: 📥 Download Samsung A06 Kernel Source
+        run: |
+          mkdir -p kernel-src
+          cd kernel-src
+          wget -q https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/A066B-5G.zip -O kernel.zip
+          unzip -q kernel.zip
+          tar -xvf Kernel.tar.gz
+          ls -la
+
+      - name: 🌱 Detect Kernel Dir
+        run: |
+          cd kernel-src
+          if [ -d "kernel-5.15" ]; then
+            echo "KERNEL_DIR=kernel-5.15" >> $GITHUB_ENV
+          elif [ -d "kernel" ]; then
+            echo "KERNEL_DIR=kernel" >> $GITHUB_ENV
+          else
+            echo "❌ Không tìm thấy thư mục kernel!"
+            exit 1
+          fi
+
+      - name: 🌱 Clone KernelSU-Next & SUSFS
+        run: |
+          git clone --depth=1 https://github.com/KernelSU-Next/KernelSU-Next.git KernelSU-Next
+          git clone --depth=1 https://github.com/sidex15/susfs4ksu-module.git susfs
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+
+      - name: 🌱 Apply KernelSU
+        run: |
+          cd kernel-src/$KERNEL_DIR
+          bash ../../KernelSU-Next/kernel/setup.sh || true
+
+      - name: 🌱 Apply SUSFS
+        run: |
+          cd kernel-src/$KERNEL_DIR
+          patch -p1 < ../../susfs/susfs.patch || true
+
+      - name: 🛠️ Select defconfig & fetch ABI
+        run: |
+          cd kernel-src/$KERNEL_DIR
+          make ARCH=arm64 a06x_defconfig
+
+      - name: ⚡ Force enable KernelSU & SUSFS configs
+        run: |
+          cd kernel-src/$KERNEL_DIR
+          {
+            echo 'CONFIG_KSU=y'
+            echo 'CONFIG_SUSFS=y'
+            echo 'CONFIG_KSU_DEBUG=y'
+            echo 'CONFIG_SUSFS_DEBUG=y'
+            echo 'CONFIG_LZ4_COMPRESS=y'
+            echo 'CONFIG_LZ4_DECOMPRESS=y'
+          } >> .config
+          make olddefconfig
+          grep -E "CONFIG_KSU|CONFIG_SUSFS|CONFIG_LZ4" .config || true
+
+      - name: Dump Kernel Config
+        run: |
+          cd kernel-src/$KERNEL_DIR
+          echo "📄 Last 50 lines of .config"
+          tail -n 50 .config
+
+      - name: Fake prebuilts NDK
+        run: |
+          mkdir -p prebuilts/ndk
+          echo "fake ndk ok"
+
+      - name: 🛠️ Build Kernel (Auto Detect)
+        run: |
+          cd kernel-src/$KERNEL_DIR
+          if [ -f "build.sh" ]; then
+            bash build.sh || { echo "❌ build.sh thất bại"; exit 1; }
+          elif [ -f "build_kernel.sh" ]; then
+            bash build_kernel.sh || { echo "❌ build_kernel.sh thất bại"; exit 1; }
+          else
+            echo "⚡ Không có build.sh → fallback sang build GKI chuẩn"
+            export ARCH=arm64
+            export SUBARCH=arm64
+            export CROSS_COMPILE=aarch64-linux-gnu-
+            export CC="ccache clang"
+            make a06x_defconfig
+            make -j$(nproc) || { echo "❌ Build GKI thất bại"; exit 1; }
+          fi
+
+      - name: Debug build tree
+        run: |
+          echo "📂 Kiểm tra outputs"
+          ls -R kernel-src/$KERNEL_DIR/out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot || true
+          ls -R kernel-src/$KERNEL_DIR/out/target/product/a06x/obj/KERNEL_OBJ/dist || true
+
+      - name: Verify KernelSU & SUSFS in config
+        run: |
+          cd kernel-src/$KERNEL_DIR/out
+          grep -q "CONFIG_KSU=y" .config && echo "✅ CONFIG_KSU đã bật" || (echo "❌ Chưa bật KSU"; exit 1)
+          grep -q "CONFIG_SUSFS=y" .config && echo "✅ CONFIG_SUSFS đã bật" || (echo "❌ Chưa bật SUSFS"; exit 1)
+
+      - name: ABI Check
+        run: |
+          cd kernel-src/$KERNEL_DIR/out
+          if [ -f abi_symbollist ]; then
+            echo "✅ ABI symbollist ok"
+          else
+            echo "⚠️ Không có ABI symbollist"
+          fi
+
+      - name: Package AnyKernel3 (KernelSU + SUSFS)
+        run: |
+          set -eux
+          DIST_DIR=kernel-src/$KERNEL_DIR/out/target/product/a06x/obj/KERNEL_OBJ/dist
+          IMG=""
+          for f in Image.gz Image.lz4 Image; do
+            if [ -f "$DIST_DIR/$f" ]; then IMG=$DIST_DIR/$f; fi
+          done
+          [ -z "$IMG" ] && { echo "❌ Không tìm thấy kernel Image"; exit 1; }
+          cp "$IMG" AnyKernel3/Image
+          cp -r $DIST_DIR/dtbo* AnyKernel3/ || true
+          cp -r $DIST_DIR/vendor_boot.img AnyKernel3/ || true
+          cd AnyKernel3
+          zip -r9 "../Kernel-A06-5.15-KSU-SUSFS.zip" . -x .git README.md *.zip
+
+      - name: Upload Kernel Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kernel-Artifacts
+          path: |
+            Kernel-A06-5.15-KSU-SUSFS.zip
+            kernel-src/$KERNEL_DIR/out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot/*
+            kernel-src/$KERNEL_DIR/out/.config
+            kernel-src/$KERNEL_DIR/out/abi_symbollist
+            kernel-src/$KERNEL_DIR/out/build.log
+
+      - name: Save Original Kernel Tree
+        run: |
+          zip -r ../Kernel-A06-Original.zip kernel-src/$KERNEL_DIR
+
+      - name: Generate Patch & Collect Rejects
+        run: |
+          cd kernel-src/$KERNEL_DIR
+          git init
+          git add .
+          git commit -m "Original kernel source"
+          git apply --reject ../../susfs/*.patch || true
+          cd ../..
+          git -C kernel-src/$KERNEL_DIR diff > Kernel-A06-KSU-SUSFS.patch
+          zip -r Kernel-A06-Rejects.zip kernel-src/$KERNEL_DIR/*.rej || true
+
+      - name: Upload Original, Patch, Rejects
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kernel-Patches
+          path: |
+            Kernel-A06-Original.zip
+            Kernel-A06-KSU-SUSFS.patch
+            Kernel-A06-Rejects.zip
+
+      - name: 📦 Create Release
+        uses: softprops/action-gh-release@v1
+        if: success()
+        with:
+          tag_name: build-${{ github.run_id }}
+          name: "Samsung A06 Kernel Build ${{ github.run_id }}"
+          draft: false
+          prerelease: false
+          files: |
+            Kernel-A06-5.15-KSU-SUSFS.zip
+            Kernel-A06-KSU-SUSFS.patch
+            Kernel-A06-Rejects.zip
+            Kernel-A06-Original.zip
+
+      - name: Post Cache ccache
+        run: |
+          ccache -s
