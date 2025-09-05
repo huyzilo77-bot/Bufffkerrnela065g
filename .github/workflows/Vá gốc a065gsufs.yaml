@@ -1,78 +1,60 @@
-name: Patch Samsung A06 5G Kernel with SUSFS
+name: Patch Kernel A06 with SUSFS
 
 on:
   workflow_dispatch:
 
 jobs:
-  patch-susfs:
+  patch:
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout workflow repo
-        uses: actions/checkout@v4
 
-      - name: Install tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y git patch unzip tar zip wget
+    steps:
+      - name: Checkout Workflow Repo
+        uses: actions/checkout@v4
 
       - name: Download Kernel Source (Samsung A06 Release)
         run: |
-          set -eux
-          wget -O source.zip "https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/A066B-5G.zip"
-          unzip -q source.zip
-
-          echo "📂 Sau khi giải nén source.zip:"
-          ls -la
-
-          # Giải nén Kernel.tar.gz để lấy mã nguồn thật
+          mkdir source && cd source
+          wget -q https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/SM-A066B_15_Opensource.zip
+          unzip SM-A066B_15_Opensource.zip
           tar -xvf Kernel.tar.gz
-
-          echo "📂 Sau khi giải nén Kernel.tar.gz:"
+          echo "✅ Giải nén xong kernel source"
           ls -la
-
-          # Kiểm tra thư mục kernel-5.15 đã tồn tại chưa
-          if [ -d kernel-5.15 ]; then
-            echo "✅ Đã tìm thấy kernel-5.15"
-          else
-            SRC_DIR=$(find . -maxdepth 1 -type d -name "SM-A066B*" | head -n 1 || true)
-            if [ -z "$SRC_DIR" ]; then
-              echo "❌ Không tìm thấy thư mục source sau khi giải nén!"
-              exit 1
-            fi
-            mv "$SRC_DIR" kernel-5.15
-          fi
-
-          chmod +x -R kernel-5.15
-
-          echo "📂 Cấu trúc trong kernel-5.15:"
-          ls -la kernel-5.15
+          ls -la kernel-5.15 || true
 
       - name: Clone SUSFS
         run: |
           git clone -b gki-android13-5.15 https://gitlab.com/simonpunk/susfs4ksu.git susfs
+          ls -la susfs || true
 
-      - name: Apply SUSFS patches
+      - name: Patch Kernel with SUSFS
         run: |
-          cd kernel-5.15-patched
-          for patch in ../susfs/patches/*.patch; do
-            echo "🔧 Applying $patch..."
-            patch -p1 < "$patch" || true
-          done
-          cd ..
-          echo "📂 Checking .rej files..."
-          find kernel-5.15-patched -name "*.rej" || true
+          cd source/kernel-5.15
+          echo "🔧 Áp dụng patch SUSFS..."
+          patch -p1 < ../../susfs/ksu_susfs.patch || true
+          echo "✅ Patch xong, kiểm tra file .rej nếu có"
+          find . -name "*.rej" || true
 
-      - name: Archive results
+      - name: Prepare Artifacts
         run: |
-          zip -r kernel-5.15-orig.zip kernel-5.15-orig
-          zip -r kernel-5.15-patched.zip kernel-5.15-patched
-          zip -r rej-files.zip $(find kernel-5.15-patched -name "*.rej") || true
+          mkdir -p artifacts
+          cp -r source/kernel-5.15 artifacts/kernel-5.15-patched || true
+          cp -r source/kernel-5.15 artifacts/kernel-5.15-unpatched || true
+          find source/kernel-5.15 -name "*.rej" -exec cp --parents {} artifacts/ \; || true
 
-      - name: Upload artifacts
+      - name: Upload Patched Kernel
         uses: actions/upload-artifact@v4
         with:
-          name: susfs-results
-          path: |
-            kernel-5.15-orig.zip
-            kernel-5.15-patched.zip
-            rej-files.zip
+          name: kernel-5.15-patched
+          path: artifacts/kernel-5.15-patched
+
+      - name: Upload Unpatched Kernel
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-5.15-unpatched
+          path: artifacts/kernel-5.15-unpatched
+
+      - name: Upload Patch Rejects
+        uses: actions/upload-artifact@v4
+        with:
+          name: susfs-rejects
+          path: artifacts/**/*.rej
