@@ -1,23 +1,29 @@
-name: Build Samsung A06 5G Kernel (KernelSU + SUSFS)
+name: 📦 Patch Samsung A06 Kernel with KernelSU + SUSFS
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
 
     steps:
       - name: 📥 Checkout Repo
         uses: actions/checkout@v4
 
-      - name: ⚙️ Install Deps & Toolchains
+      - name: 🛠️ Install Deps & Toolchains
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            git wget curl unzip build-essential \
-            bc bison flex libssl-dev \
-            gcc clang lld llvm
+          sudo apt-get install -y git wget unzip build-essential bc \
+            flex bison ccache libssl-dev make clang llvm lld \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+
+      - name: ⚡ Setup ccache
+        uses: actions/cache@v3
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-ccache
+          restore-keys: ${{ runner.os }}-ccache
 
       - name: 📥 Download Samsung A06 Kernel Source
         run: |
@@ -25,37 +31,68 @@ jobs:
           cd kernel-src
           wget -q https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/A066B-5G.zip -O kernel.zip
           unzip -q kernel.zip
-          ls -lh
+          ls -la
 
-      - name: 🌱 Clone KernelSU-Next & SUSFS
+      - name: 🌱 Detect Kernel Dir
+        id: detect
         run: |
-          git clone --depth=1 https://github.com/KernelSU-Next/KernelSU-Next.git KernelSU-Next
+          cd kernel-src
+          if [ -d kernel-5.15 ]; then
+            echo "KERNEL_DIR=kernel-5.15" >> $GITHUB_ENV
+          elif [ -d kernel ]; then
+            echo "KERNEL_DIR=kernel" >> $GITHUB_ENV
+          else
+            echo "❌ Không tìm thấy thư mục kernel"
+            ls -la
+            exit 1
+          fi
+          echo "✅ Kernel dir = $KERNEL_DIR"
+
+      - name: 📦 Save Original Kernel
+        run: |
+          cp -r kernel-src/${KERNEL_DIR} kernel-src-original
+
+      - name: ⬇️ Clone KernelSU-Next & SUSFS
+        run: |
+          git clone --depth=1 https://github.com/KernelSU-Next/KernelSU-Next.git ksu-next
           git clone --depth=1 https://github.com/sidex15/susfs4ksu-module.git susfs
 
-      - name: ⚡ Apply KernelSU Patch
+      - name: 🧩 Apply KernelSU Patch
         run: |
-          cd kernel-src/kernel-5.15
-          bash ../../KernelSU-Next/scripts/apply.sh next
+          cd kernel-src/${KERNEL_DIR}
+          bash ../../ksu-next/scripts/apply.sh || true
 
-      - name: ⚡ Apply SUSFS Patch
+      - name: 🧩 Apply SUSFS Patch
         run: |
-          cd kernel-src/kernel-5.15
-          patch -p1 < ../../susfs/susfs.patch || true
+          cd kernel-src/${KERNEL_DIR}
+          for p in ../../susfs/patches/*; do
+            echo "⚡ Applying $p"
+            patch -p1 < "$p" || true
+          done
 
-      - name: 🔍 Verify Patch Result
+      - name: 📦 Save Patched Kernel
         run: |
-          echo "🔍 Checking for .rej files..."
-          if find kernel-src/kernel-5.15 -name "*.rej" | grep -q .; then
-            echo "⚠️ Found rejected patches (.rej):"
-            find kernel-src/kernel-5.15 -name "*.rej"
-          else
-            echo "✅ No .rej files, patch applied cleanly."
-          fi
+          cp -r kernel-src/${KERNEL_DIR} kernel-src-patched
 
-      - name: 💾 Save Original, Patched, Rejected
+      - name: 📦 Collect .rej Files
+        run: |
+          mkdir -p kernel-rejects
+          find kernel-src/${KERNEL_DIR} -name "*.rej" -exec cp --parents {} kernel-rejects/ \; || true
+
+      - name: ⬆️ Upload Original Kernel
         uses: actions/upload-artifact@v4
         with:
-          name: Kernel-Patched-Outputs
-          path: |
-            kernel-src/kernel-5.15
-            kernel-src/*.rej
+          name: kernel-original
+          path: kernel-src-original
+
+      - name: ⬆️ Upload Patched Kernel
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-patched
+          path: kernel-src-patched
+
+      - name: ⬆️ Upload Reject Files
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-rejects
+          path: kernel-rejects
