@@ -37,10 +37,28 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-ccache-
 
-      - name: Download Kernel Source (Samsung A06 Release)
+      - name: 📥 Download Samsung A06 Kernel Source
         run: |
-          git clone https://github.com/ravindu644/android_kernel_m145f_common.git kernel-5.15 --depth=1
+          mkdir -p kernel-src
+          cd kernel-src
+          wget -q https://github.com/huyzilo77-bot/Bufffkerrnela065g/releases/download/V1/A066B-5G.zip -O kernel.zip
+          unzip -q kernel.zip
+          tar -xvf Kernel.tar.gz
+          ls -la
 
+      - name: 🌱 Detect Kernel Dir
+        id: detect
+        run: |
+          cd kernel-src
+          if [ -d "kernel-5.15" ]; then
+            echo "kernel_dir=kernel-5.15" >> $GITHUB_ENV
+          elif [ -d "kernel" ]; then
+            echo "kernel_dir=kernel" >> $GITHUB_ENV
+          else
+            echo "❌ Không tìm thấy thư mục kernel!"
+            exit 1
+          fi
+          
       - name: Cache AnyKernel3 & SUSFS
         uses: actions/cache@v4
         with:
