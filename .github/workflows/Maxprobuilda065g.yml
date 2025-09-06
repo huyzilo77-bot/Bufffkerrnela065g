@@ -25,13 +25,11 @@ jobs:
 
       - name: 📦 Install toolchains (Clang + GCC)
         run: |
-          mkdir -p ~/toolchains
-          cd ~/toolchains
-          # Download Android prebuilt clang
+          mkdir -p $HOME/toolchains
+          cd $HOME/toolchains
           wget -q https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master/clang-r450784d.tar.gz -O clang.tar.gz
           tar -xf clang.tar.gz
-          # Export paths
-          echo "PATH=$HOME/toolchains/bin:$PATH" >> $GITHUB_ENV
+          echo "$HOME/toolchains/bin" >> $GITHUB_PATH
           echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
           echo "CC=clang" >> $GITHUB_ENV
         
