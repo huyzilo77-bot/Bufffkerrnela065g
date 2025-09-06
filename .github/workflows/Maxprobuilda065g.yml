@@ -58,6 +58,14 @@ jobs:
             exit 1
           fi
 
+      - name: Fix permissions for build scripts
+        run: |
+          cd kernel-src/$KERNEL_DIR
+          chmod +x build.sh || true
+          chmod +x build_kernel.sh || true
+          chmod +x build.config* || true
+          chmod +x ../*.sh || true
+
       - name: 🌱 Clone KernelSU-Next & SUSFS & AnyKernel3
         run: |
           git clone --depth=1 https://github.com/KernelSU-Next/KernelSU-Next.git KernelSU-Next
