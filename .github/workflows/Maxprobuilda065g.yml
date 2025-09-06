@@ -23,6 +23,18 @@ jobs:
           sudo apt-get install -y git wget curl unzip bc build-essential ccache \
             flex bison libssl-dev libncurses5-dev python3 clang lld
 
+       - name: 📦 Install toolchains (Clang + GCC)
+        run: |
+          mkdir -p ~/toolchains
+          cd ~/toolchains
+          # Download Android prebuilt clang
+          wget -q https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master/clang-r450784d.tar.gz -O clang.tar.gz
+          tar -xf clang.tar.gz
+          # Export paths
+          echo "PATH=$HOME/toolchains/bin:$PATH" >> $GITHUB_ENV
+          echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
+          echo "CC=clang" >> $GITHUB_ENV
+        
       - name: Setup ccache
         run: |
           export USE_CCACHE=1
@@ -97,10 +109,15 @@ jobs:
           mkdir -p prebuilts/ndk
           echo "fake ndk ok"
 
-      - name: 🛠️ Build Kernel (build.sh)
+      - name: 🛠️ Build Kernel (Auto Detect)
         run: |
           cd kernel-src/$KERNEL_DIR
-          bash build.sh || { echo "❌ build.sh thất bại"; exit 1; }
+          if [ -f "build.sh" ]; then
+            bash build.sh
+          else
+            make ARCH=arm64 a06x_defconfig
+            make ARCH=arm64 CC=clang CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)
+          fi
 
       - name: Debug build tree
         run: |
