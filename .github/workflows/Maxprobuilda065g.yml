@@ -58,13 +58,13 @@ jobs:
             exit 1
           fi
 
-      - name: Fix permissions for build scripts
+      - name: 🔧 Fix permissions for build scripts
         run: |
           cd kernel-src/$KERNEL_DIR
-          chmod +x build.sh || true
-          chmod +x build_kernel.sh || true
-          chmod +x build.config* || true
-          chmod +x ../*.sh || true
+          # Cấp quyền thực thi cho tất cả script .sh và build.config*
+          find . -type f -name "*.sh" -exec chmod +x {} \;
+          find . -type f -name "build.config*" -exec chmod +x {} \;
+          chmod -R +x . || true
 
       - name: 🌱 Clone KernelSU-Next & SUSFS & AnyKernel3
         run: |
