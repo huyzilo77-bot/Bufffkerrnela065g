@@ -1,4 +1,4 @@
-name: Build Samsung A06 GKI Kernel
+name: Build Samsung A06 GKI Kernel (KSU + SUSFS)
 
 on:
   workflow_dispatch:
@@ -21,8 +21,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y git wget curl unzip bc build-essential ccache \
-            flex bison libssl-dev libncurses5-dev python3 \
-            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+            flex bison libssl-dev libncurses5-dev python3 clang lld
 
       - name: Setup ccache
         run: |
@@ -59,7 +58,7 @@ jobs:
             exit 1
           fi
 
-      - name: 🌱 Clone KernelSU-Next & SUSFS
+      - name: 🌱 Clone KernelSU-Next & SUSFS & AnyKernel3
         run: |
           git clone --depth=1 https://github.com/KernelSU-Next/KernelSU-Next.git KernelSU-Next
           git clone --depth=1 https://github.com/sidex15/susfs4ksu-module.git susfs
@@ -75,66 +74,25 @@ jobs:
           cd kernel-src/$KERNEL_DIR
           patch -p1 < ../../susfs/susfs.patch || true
 
-      - name: 🛠️ Select defconfig & generate build.config
+      - name: ⚡ Force enable KSU & SUSFS via build.config
         run: |
-          cd kernel-src/$KERNEL_DIR
-          make ARCH=arm64 a06x_defconfig
-
-      - name: ⚡ Force enable KernelSU & SUSFS configs
-        run: |
-          cd kernel-src/$KERNEL_DIR
-          {
-            echo 'CONFIG_KSU=y'
-            echo 'CONFIG_SUSFS=y'
-            echo 'CONFIG_KSU_DEBUG=y'
-            echo 'CONFIG_SUSFS_DEBUG=y'
-            echo 'CONFIG_LZ4_COMPRESS=y'
-            echo 'CONFIG_LZ4_DECOMPRESS=y'
-          } >> .config
-          make olddefconfig
-          grep -E "CONFIG_KSU|CONFIG_SUSFS|CONFIG_LZ4" .config || true
-
-      - name: Dump Kernel Config
-        run: |
-          cd kernel-src/$KERNEL_DIR
-          echo "📜 Last 50 lines of .config"
-          tail -n 50 .config
+          CONFIG_FILE="kernel-src/$KERNEL_DIR/build.config.mtk.aarch64"
+          echo 'POST_DEFCONFIG_CMDS="
+            echo CONFIG_KSU=y >> $OUT_DIR/.config;
+            echo CONFIG_SUSFS=y >> $OUT_DIR/.config;
+            make -C $KERNEL_DIR O=$OUT_DIR olddefconfig;
+          "' >> $CONFIG_FILE
+          cat $CONFIG_FILE
 
       - name: Fake prebuilts NDK
         run: |
           mkdir -p prebuilts/ndk
           echo "fake ndk ok"
 
-      - name: Install Clang prebuilts
-        run: |
-          mkdir -p toolchains && cd toolchains
-          wget -q https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master/clang-r487747c.tar.gz -O clang.tar.gz
-          mkdir clang && tar -xzf clang.tar.gz -C clang
-          echo "CLANG_PATH=$(pwd)/clang/bin" >> $GITHUB_ENV
-          cd ..
-
-      - name: 🛠️ Build Kernel (Auto Detect)
+      - name: 🛠️ Build Kernel (build.sh)
         run: |
           cd kernel-src/$KERNEL_DIR
-          export PATH=$CLANG_PATH:$PATH
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export CC=clang
-
-          if [ -f "build.sh" ]; then
-            echo "🔧 Phát hiện build.sh → chạy build.sh"
-            bash build.sh || { echo "❌ build.sh thất bại"; exit 1; }
-
-          elif [ -f "build_kernel.sh" ]; then
-            echo "🔧 Phát hiện build_kernel.sh → chạy build_kernel.sh"
-            bash build_kernel.sh || { echo "❌ build_kernel.sh thất bại"; exit 1; }
-
-          else
-            echo "⚡ Không có build.sh → fallback sang build GKI chuẩn"
-            make a06x_defconfig
-            make -j$(nproc) || { echo "❌ Build GKI thất bại"; exit 1; }
-          fi
+          bash build.sh || { echo "❌ build.sh thất bại"; exit 1; }
 
       - name: Debug build tree
         run: |
@@ -147,15 +105,6 @@ jobs:
           cd kernel-src/$KERNEL_DIR/out
           grep -q "CONFIG_KSU=y" .config && echo "✅ CONFIG_KSU đã bật" || (echo "❌ Chưa bật KSU"; exit 1)
           grep -q "CONFIG_SUSFS=y" .config && echo "✅ CONFIG_SUSFS đã bật" || (echo "❌ Chưa bật SUSFS"; exit 1)
-
-      - name: ABI Check
-        run: |
-          cd kernel-src/$KERNEL_DIR/out
-          if [ -f abi_symbollist ]; then
-            echo "✅ ABI symbollist ok"
-          else
-            echo "⚠️ Không có ABI symbollist"
-          fi
 
       - name: Package AnyKernel3 (KernelSU + SUSFS)
         run: |
@@ -183,6 +132,30 @@ jobs:
         with:
           name: Kernel-Zip
           path: Kernel-A06-5.15-KSU-SUSFS.zip
+
+      - name: Upload Boot Outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: Boot-Outputs
+          path: kernel-src/$KERNEL_DIR/out/target/product/a06x/obj/KERNEL_OBJ/arch/arm64/boot/*
+
+      - name: Upload Kernel Config
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kernel-Config
+          path: kernel-src/$KERNEL_DIR/out/.config
+
+      - name: Upload ABI Symbollist
+        uses: actions/upload-artifact@v4
+        with:
+          name: ABI-Symbollist
+          path: kernel-src/$KERNEL_DIR/out/abi_symbollist
+
+      - name: Upload Build Log
+        uses: actions/upload-artifact@v4
+        with:
+          name: Build-Log
+          path: kernel-src/$KERNEL_DIR/out/build.log
 
       - name: Save Original Kernel Tree
         run: |
