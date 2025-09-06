@@ -23,15 +23,25 @@ jobs:
           sudo apt-get install -y git wget curl unzip bc build-essential ccache \
             flex bison libssl-dev libncurses5-dev python3 clang lld
 
-      - name: 📦 Install toolchains (Clang + GCC)
-        run: |
-          mkdir -p $HOME/toolchains
-          cd $HOME/toolchains
-          wget -q https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master/clang-r450784d.tar.gz -O clang.tar.gz
-          tar -xf clang.tar.gz
-          echo "$HOME/toolchains/bin" >> $GITHUB_PATH
-          echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
-          echo "CC=clang" >> $GITHUB_ENV
+        - name: Install toolchains (Clang + GCC)
+  run: |
+    mkdir -p ~/toolchains
+    cd ~/toolchains
+
+    # Clone Clang từ AOSP (Google prebuilts)
+    if [ ! -d "clang" ]; then
+      git clone --depth=1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 clang
+    fi
+
+    # Clone GCC cross-compiler aarch64
+    if [ ! -d "gcc64" ]; then
+      git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 gcc64
+    fi
+
+    # Xuất env để make nhận toolchain
+    echo "CC=clang" >> $GITHUB_ENV
+    echo "CROSS_COMPILE=~/toolchains/gcc64/bin/aarch64-linux-android-" >> $GITHUB_ENV
+    echo "PATH=~/toolchains/clang/bin:$PATH" >> $GITHUB_ENV
         
       - name: Setup ccache
         run: |
